@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>Third Draft · Creative workspace</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to workspace</a>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Projects and runtime">
+        <a class="wordmark" href="/" aria-label="Third Draft home"><span class="brand-mark" aria-hidden="true">Ⅲ</span><span>third draft<span class="brand-subtitle">Every draft builds on the last.</span></span></a>
+        <div class="sidebar-heading"><h2>My projects</h2><span class="local-label">Local</span></div>
+        <nav id="project-list" class="project-list" aria-label="Switch project"><p class="sidebar-note">Loading projects…</p></nav>
+        <details id="new-project-details" class="new-project">
+          <summary>＋ New project</summary>
+          <form id="project-form">
+            <label for="project-name">Project name</label>
+            <input id="project-name" name="name" required maxlength="80" autocomplete="off" placeholder="For example: Weekend Coffee">
+            <button class="button sidebar-button" type="submit">Create project</button>
+          </form>
+        </details>
+        <div class="sidebar-bottom">
+          <div class="runtime-heading"><span id="runtime-dot" class="status-dot" aria-hidden="true"></span><h2>Creative runtime</h2><button id="refresh-runtime" class="icon-button" type="button" aria-label="Refresh runtime status" title="Refresh runtime status">↻</button></div>
+          <p id="runtime-status" class="runtime-status">Checking connection…</p>
+          <p id="runtime-detail" class="sidebar-note"></p>
+          <button id="toggle-dispatch" class="sidebar-action" type="button" disabled>Checking dispatch…</button>
+          <p id="dispatch-status" class="sidebar-note"></p>
+          <button id="open-skills" class="sidebar-action" type="button" data-view="skills" disabled>Skills & methods ↗</button>
+          <button id="restore-backup" class="sidebar-action" type="button">Restore a backup ↗</button>
+          <p class="sidebar-footnote">Project memory stays on this computer.<br>Work and feedback stay within their project.</p>
+        </div>
+      </aside>
+
+      <main id="main" class="main" tabindex="-1">
+        <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+        <section id="welcome" class="welcome" hidden>
+          <span class="eyebrow">THIRD DRAFT / CREATIVE WORKSPACE</span>
+          <h1>Good ideas deserve another draft.</h1>
+          <p>Start a project. Keep the knowledge and creative decisions that matter. Next time, build on what you already know.</p>
+          <button id="welcome-create" class="button primary" type="button">Create your first project <span aria-hidden="true">↗</span></button>
+          <div class="welcome-steps"><div><span>01</span><h2>Keep useful knowledge</h2><p>Save references and confirm your brand facts.</p></div><div><span>02</span><h2>Make a first draft</h2><p>Create a piece of writing with relevant context.</p></div><div><span>03</span><h2>Build on the last draft</h2><p>Save your feedback and carry it into the next iteration.</p></div></div>
+        </section>
+
+        <div id="workspace" hidden>
+          <header class="workspace-header">
+            <div><span class="eyebrow">Project workspace</span><h1 id="current-project-name"></h1></div>
+            <div class="header-actions"><div class="project-summary"><span class="small-dot" aria-hidden="true"></span><span id="project-summary">Project memory</span></div><button id="backup-project" class="text-button" type="button" title="Download a private backup, including project memory">Back up project</button><button id="archive-project" class="text-button" type="button">Archive project</button></div>
+          </header>
+          <p id="archived-banner" class="notice" hidden>This project is archived. Its knowledge and work remain available. Restore it to create or edit.</p>
+          <nav class="workspace-nav" aria-label="Project views">
+            <button class="view-button active" type="button" data-view="create" aria-current="page">Ideas</button>
+            <button class="view-button" type="button" data-view="memory">Knowledge <span id="knowledge-count" class="count">0</span></button>
+            <button class="view-button" type="button" data-view="sets">Creative sets <span id="set-count" class="count">0</span></button>
+            <button class="view-button" type="button" data-view="runs">Activity <span id="run-count" class="count">0</span></button>
+          </nav>
+
+          <section id="view-create" class="view">
+            <div class="creation-grid">
+              <section class="compose-panel" aria-labelledby="compose-title">
+                <div class="section-heading"><span class="section-number">01 / CREATE</span><span class="quiet-label">Written work</span></div>
+                <h2 id="compose-title">What do you want to say?</h2>
+                <p class="section-description">Describe your goal. Relevant facts, references, and feedback from this project will inform the draft.</p>
+                <form id="creative-form">
+                  <div id="source-strip" class="source-strip" hidden><div><span class="field-hint">Continuing from this version</span><strong id="source-title"></strong></div><button id="clear-source" class="text-button" type="button">Start fresh</button></div>
+                  <label for="creative-goal">Creative goal</label>
+                  <textarea id="creative-goal" name="goal" required maxlength="2000" rows="7" placeholder="For example: Write a social post for our weekend launch. Capture the feeling of slowing down, then invite readers to share their weekend ritual."></textarea>
+                  <div class="form-row"><label for="creative-language">Output language<select id="creative-language" name="language"><option value="English">English</option><option value="Chinese">Chinese</option></select></label><label for="creative-count">Ideas to generate<input id="creative-count" name="count" type="number" min="1" max="12" value="6" required></label></div>
+                  <label for="creative-set">Creative set <span class="optional">Optional</span><select id="creative-set" name="setId"><option value="">Independent ideas</option></select></label>
+                  <p class="field-hint form-note">Ideas are saved automatically. Generating ideas does not start research or image production.</p>
+                  <div class="compose-actions"><button id="preview-context" class="button secondary" type="button">Preview context</button><button id="generate-button" class="button primary" type="submit">Generate ideas <span aria-hidden="true">↗</span></button></div>
+                  <p id="generation-guidance" class="field-hint generation-guidance"></p>
+                </form>
+                <div id="active-run" class="active-run" role="status" aria-live="polite" hidden></div>
+                <div class="memory-reminder"><span class="reminder-icon" aria-hidden="true">↳</span><p>Keep useful decisions with the project.<br><button id="go-memory" class="inline-button" type="button">Add brand facts or references</button></p></div>
+              </section>
+
+              <section class="archive-panel" aria-labelledby="archive-title">
+                <div class="section-heading"><span class="section-number">02 / BUILD ON IT</span><label class="filter-label"><input id="favorites-only" type="checkbox"> Favorites only</label></div>
+                <div class="archive-heading"><h2 id="archive-title">Your creative history</h2><span id="concept-count" class="quiet-label">0 versions</span></div>
+                <p class="section-description">Every draft is saved. Favorite it, leave feedback, or keep going.</p>
+                <div class="idea-filters"><label for="idea-angle-filter">Angle<select id="idea-angle-filter"><option value="">All angles</option></select></label><label for="idea-theme-filter">Theme<select id="idea-theme-filter"><option value="">All themes</option></select></label><button id="add-manual-idea" class="button secondary" type="button">Add an idea</button></div><label class="filter-label archived-filter"><input id="show-archived-ideas" type="checkbox"> Show archived ideas</label>
+                <div id="concept-list" class="concept-list"></div>
+              </section>
+            </div>
+          </section>
+
+          <section id="view-memory" class="view" hidden aria-labelledby="memory-title">
+            <div class="page-intro"><span class="section-number">PROJECT MEMORY</span><h2 id="memory-title">Keep what is worth remembering.</h2><p class="section-description">You confirm brand facts. References keep their sources, so future work has something to build on.</p></div>
+            <nav class="subnav" aria-label="Knowledge views"><button class="subnav-button active" type="button" data-memory-view="facts" aria-current="page">Facts & references</button><button class="subnav-button" type="button" data-memory-view="research">Research sources <span id="evidence-count" class="count">0</span></button><button class="subnav-button" type="button" data-memory-view="insights">Insights <span id="insight-count" class="count">0</span></button><button class="subnav-button" type="button" data-memory-view="images">Images <span id="image-count" class="count">0</span></button></nav>
+            <div id="memory-facts" class="memory-view"><div class="memory-grid"><section class="knowledge-form-panel" aria-labelledby="add-knowledge-title"><h3 id="add-knowledge-title">Add knowledge</h3>
+              <form id="knowledge-form">
+                <label for="knowledge-kind">Type<select id="knowledge-kind" name="kind"><option value="brand">Brand fact draft</option><option value="reference">Reference</option></select></label>
+                <label for="knowledge-file">Import text <span class="optional">Optional</span><input id="knowledge-file" type="file" accept=".txt,.md,text/plain,text/markdown"><span class="field-hint">Fills this form for your review. Nothing is saved or confirmed yet.</span></label>
+                <label for="knowledge-title">Title<input id="knowledge-title" name="title" required maxlength="120" placeholder="For example: Brand voice and claims to avoid"></label>
+                <label for="knowledge-content">Content<textarea id="knowledge-content" name="content" required maxlength="2000" rows="7" placeholder="Paste text or Markdown, up to 2,000 characters. Include where it applies, what is unknown, and any limits."></textarea></label>
+                <label for="knowledge-source">Source<input id="knowledge-source" name="source" required maxlength="300" placeholder="For example: Brand guide / Owner statement / Source URL"></label>
+                <label for="knowledge-tags">Topics <span class="optional">Optional</span><input id="knowledge-tags" name="tags" maxlength="400" placeholder="Separate with commas, for example: weekend, coffee, tone"></label>
+                <p id="knowledge-hint" class="field-hint">Saved as a draft. Confirm it before it can be used as a brand fact.</p>
+                <button class="button primary" type="submit">Save knowledge</button>
+              </form>
+            </section><section class="knowledge-library" aria-labelledby="knowledge-library-title"><div class="archive-heading"><h3 id="knowledge-library-title">Saved knowledge</h3><span class="quiet-label">Versions preserved</span></div><div id="knowledge-list"></div></section></div></div>
+            <section id="memory-research" class="memory-view" hidden aria-labelledby="research-title"><div class="view-toolbar"><div><h3 id="research-title">Research library</h3><p class="section-description">Save what a source says, then separate your interpretation. Select sources to synthesize insights.</p></div><button id="read-source-url" class="button secondary" type="button">Read a source URL</button><button id="add-evidence" class="button primary" type="button">Add a source</button></div><div class="selection-toolbar"><span id="evidence-selection-count" class="field-hint">No sources selected</span><button id="synthesize-insights" class="button secondary" type="button" disabled>Synthesize selected sources</button></div><div id="evidence-list" class="record-grid"></div></section>
+            <section id="memory-insights" class="memory-view" hidden aria-labelledby="insights-title"><div class="view-toolbar"><div><h3 id="insights-title">Insight bank</h3><p class="section-description">Keep observations, creative hypotheses, and their limits connected to the evidence.</p></div><button id="add-insight" class="button primary" type="button">Add an insight</button></div><div id="insights-list" class="record-grid"></div></section>
+            <section id="memory-images" class="memory-view" hidden aria-labelledby="images-title"><div class="view-toolbar"><div><h3 id="images-title">Project images</h3><p class="section-description">Keep reference images and logos in this project. Image extraction creates a brand draft for your confirmation.</p></div><button id="upload-image" class="button primary" type="button">Import an image</button></div><div class="asset-filters"><label for="image-style-filter">Style<select id="image-style-filter"><option value="">All styles</option></select></label><label for="image-adoption-filter">Decision<select id="image-adoption-filter"><option value="all">All decisions</option><option value="adopted">Adopted</option><option value="not_adopted">Not adopted</option><option value="rejected">Rejected</option></select></label><span id="image-filter-count" class="field-hint"></span></div><div id="image-pagination-container"></div><div id="image-library" class="record-grid image-grid"></div></section>
+          </section>
+
+          <section id="view-sets" class="view" hidden aria-labelledby="sets-title"><div class="page-intro view-toolbar"><div><span class="section-number">CREATIVE SETS</span><h2 id="sets-title">Turn a few ideas into a body of work.</h2><p class="section-description">A Paid or Organic brief keeps a selected group of ideas focused. Unselected ideas stay in your library.</p></div><button id="create-set" class="button primary" type="button">Create a set</button></div><div class="sets-layout"><nav id="sets-list" class="sets-list" aria-label="Choose a creative set"></nav><section id="set-detail" class="set-detail" aria-label="Selected creative set"></section></div></section>
+
+          <section id="view-runs" class="view" hidden aria-labelledby="runs-title"><div class="page-intro"><span class="section-number">ACTIVITY</span><h2 id="runs-title">Every draft has a history.</h2><p class="section-description">Inspect each run, its route, usage, and saved context. Unknown external results are never retried automatically.</p></div><div id="runs-list" class="runs-list"></div></section>
+          <section id="view-skills" class="view" hidden aria-labelledby="skills-title"><div class="page-intro view-toolbar"><div><span class="section-number">SKILLS & METHODS</span><h2 id="skills-title">A shared library. A deliberate choice.</h2><p class="section-description">Import a method once, then explicitly enable its fixed version for this project. Importing a package never executes its scripts.</p></div><button id="import-skill" class="button primary" type="button">Import a skill</button></div><div id="skills-list" class="record-grid"></div></section>
+        </div>
+        <footer class="workspace-footer"><span>Third Draft</span><span>Local creative workspace</span></footer>
+      </main>
+    </div>
+    <dialog id="context-dialog" aria-labelledby="context-title"><div class="dialog-header"><div><span class="eyebrow">CONTEXT & PROVENANCE</span><h2 id="context-title">Context for this draft</h2></div><button id="close-context" class="icon-button dialog-close" type="button" aria-label="Close context">×</button></div><div id="context-content"></div></dialog>
+    <dialog id="editor-dialog" aria-labelledby="editor-title"><div class="dialog-header"><div><span id="editor-eyebrow" class="eyebrow">PROJECT WORKSPACE</span><h2 id="editor-title"></h2></div><button id="close-editor" class="icon-button dialog-close" type="button" aria-label="Close editor">×</button></div><div id="editor-content"></div></dialog>
+  </body>
+</html>

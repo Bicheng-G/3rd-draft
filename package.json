@@ -1,0 +1,18 @@
+{
+  "name": "third-draft",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.15.0"
+  },
+  "scripts": {
+    "start": "node --experimental-sqlite src/server.mjs",
+    "test": "node --experimental-sqlite --test tests/*.test.mjs",
+    "validate:live": "node --experimental-sqlite tools/validate-live.mjs"
+  },
+  "dependencies": {
+    "fflate": "0.8.3",
+    "sharp": "0.35.5"
+  }
+}

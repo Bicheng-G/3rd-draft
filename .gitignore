@@ -1,0 +1,11 @@
+# Local application state; product knowledge belongs in docs/.
+.workbench/
+.env
+.env.*
+!.env.example
+node_modules/
+dist/
+coverage/
+output/playwright/
+.playwright-cli/
+*.log
