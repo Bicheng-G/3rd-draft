@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync, lstatSync, existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
+import { mkdirSync, lstatSync, existsSync, readFileSync, writeFileSync, renameSync, openSync, fsyncSync, closeSync } from 'node:fs';
 import path from 'node:path';
 import { AppError, id, now, hash, text, tags, requireId } from './common.mjs';
 
@@ -257,6 +257,38 @@ export class Store {
   }
   archive(projectId, run) {
     if (!run.pendingOutput) throw new Error('Missing validated output');
+    if(['produce_image','edit_image'].includes(run.taskType)){
+      const {record,imageBase64}=run.pendingOutput,{contentHash,...fields}=record;
+      const expected=path.join('projects',projectId,'assets',requireId(record.id),'image.png');
+      if(record.runId!==run.id||record.artifactPath!==expected||record.method!=='native'||contentHash!==hash(fields)||typeof imageBase64!=='string'||imageBase64.length>Math.ceil(20*1024*1024/3)*4)
+        throw new AppError('invalid_archive','The pending production record failed validation.',500);
+      const bytes=Buffer.from(imageBase64,'base64');
+      if(bytes.toString('base64')!==imageBase64||bytes.length<33||bytes.length>20*1024*1024||hash(bytes)!==record.artifactHash||
+        !bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))||bytes.readUInt32BE(16)!==record.width||bytes.readUInt32BE(20)!==record.height)
+        throw new AppError('invalid_archive','The pending production image failed validation.',500);
+      const filename=this.safePath(expected),temporary=this.safePath(expected+'.tmp');
+      mkdirSync(path.dirname(filename),{recursive:true});
+      const regular=filename=>{if(existsSync(filename)){const stat=lstatSync(filename);if(!stat.isFile()||stat.isSymbolicLink()||stat.nlink!==1)throw new AppError('invalid_archive','Linked image archive files are not allowed.',500);}};
+      regular(filename);regular(temporary);
+      if(existsSync(filename)){
+        if(hash(readFileSync(filename))!==record.artifactHash)throw new AppError('invalid_archive','An immutable image archive already contains different bytes.',500);
+      }else{
+        const descriptor=openSync(temporary,'w');try{writeFileSync(descriptor,bytes);fsyncSync(descriptor);}finally{closeSync(descriptor);}
+        if(hash(readFileSync(temporary))!==record.artifactHash)throw new AppError('archive_failed','Image write verification failed.',500);
+        renameSync(temporary,filename);
+      }
+      const completed={...run,status:'succeeded',assetId:record.id,completedAt:now(),error:null};delete completed.pendingOutput;
+      this.transaction(()=>{
+        const existing=this.db.prepare('SELECT payload FROM assets WHERE project_id=? AND id=?').get(projectId,record.id);
+        if(existing){if(JSON.parse(existing.payload).contentHash!==record.contentHash)throw new AppError('invalid_archive','Asset identity already has different content.',500);}
+        else{
+          this.db.prepare('INSERT INTO assets VALUES (?,?,?,?,?,?,?,?)').run(record.id,projectId,record.parentId??null,run.id,record.setId,record.conceptId,record.briefId,JSON.stringify(record));
+          for(const reference of record.snapshot.references)this.db.prepare('INSERT INTO asset_links VALUES (?,?,?)').run(projectId,record.id,reference.id);
+        }
+        this.saveRun(projectId,completed);
+      });
+      Object.assign(run,completed);delete run.pendingOutput;return record;
+    }
     if(['extract_brand','review_asset'].includes(run.taskType)) {
       const record=run.pendingOutput,completed={...run,status:'succeeded',completedAt:now(),error:null,[run.taskType==='extract_brand'?'knowledgeId':'reviewId']:record.id};delete completed.pendingOutput;
       this.transaction(()=>{if(run.taskType==='extract_brand'){this.db.prepare('INSERT INTO knowledge VALUES (?,?,?,?,?)').run(record.id,projectId,record.itemId,record.previousId,JSON.stringify(record));this.db.prepare('INSERT INTO knowledge_assets VALUES (?,?,?)').run(projectId,record.id,record.assetId);}else this.db.prepare('INSERT INTO reviews VALUES (?,?,?,?)').run(record.id,projectId,record.assetId,JSON.stringify(record));this.saveRun(projectId,completed);});Object.assign(run,completed);delete run.pendingOutput;return record;

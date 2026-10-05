@@ -569,7 +569,7 @@ function renderImages() {
   $('#image-pagination-container').replaceChildren(imagePagination('image-pagination', 'Project image pages', assets.length, state.imagePage, (page) => { state.imagePage = page; renderImages(); }));
   if (!assets.length) { list.append(state.data.assets.length ? emptyState('No images match these filters', 'Choose another style or decision to see more saved images.') : emptyState('Keep your visual references together', 'Import a logo, product photo, or reference image. Each file stays inside this project.')); return; }
   for (const asset of assets.slice((state.imagePage - 1) * IMAGE_PAGE_SIZE, state.imagePage * IMAGE_PAGE_SIZE)) {
-    const card = el('article', 'record-card image-card'); card.dataset.assetId = asset.id; card.append(imagePreview(asset), el('h3', '', asset.name), el('p', 'card-meta', `${asset.width} × ${asset.height} · ${asset.role === 'logo' ? 'Logo' : asset.method === 'layered' ? 'Local composition' : 'Imported image'}`));
+    const card = el('article', 'record-card image-card'); card.dataset.assetId = asset.id; card.append(imagePreview(asset), el('h3', '', asset.name), el('p', 'card-meta', `${asset.width} × ${asset.height} · ${asset.role === 'logo' ? 'Logo' : asset.method === 'native' ? 'Native generated image' : asset.method === 'layered' ? 'Local composition' : 'Imported image'}`));
     addDetail(card, 'Source', asset.source); addDetail(card, 'Style', asset.style);
     const decision = assetDecision(asset); if (decision) card.append(el('span', 'badge', decision === 'adopted' ? 'Adopted by user' : 'Rejected by user'));
     const actions = el('div', 'asset-actions'); actions.append(assetFileLink(asset), runtimeButton('Extract brand draft', () => assetTask(asset, 'extract_brand')));
@@ -629,6 +629,36 @@ function composeImage(set, existing = null) {
   addField(fields, 'Aspect ratio', 'ratio', composition?.ratio || '4:5', { options: [{ value: '1:1', label: 'Square · 1:1' }, { value: '4:5', label: 'Portrait · 4:5' }, { value: '9:16', label: 'Tall · 9:16' }] });
   addField(fields, 'Font', 'font', composition?.font || 'Arial', { options: ['Arial', 'Georgia'] });
   addField(fields, 'Caption', 'caption', existing?.caption || '', { multiline: true, rows: 4, maxLength: 8000, hint: 'Leave empty to use the selected idea copy.' });
+}
+
+function productionButton(label, handler) {
+  const node = runtimeButton(label, handler);
+  node.dataset.needsImage = 'true';
+  node.disabled ||= !state.imageRuntime?.available;
+  return node;
+}
+
+function produceImage(set, previous = null) {
+  if (!state.imageRuntime?.available || !canRun()) { notify('Image production is unavailable. Refresh the connection or check Activity.', true); return; }
+  if (!set.conceptIds.length) { notify('Add an idea version to this set before generating an image.', true); return; }
+  const limit = previous ? 4 : 5;
+  const editor = openEditor(previous ? 'Edit this image as a new version' : 'Generate an image',
+    `${previous ? 'The original image is included and preserved. Describe the change to make.' : 'Choose an idea version and the references to use.'} Starting authorizes this production action through your ChatGPT subscription, with at most two image operations. The result is saved for your review; it is not adopted or published automatically.`,
+    previous ? 'Start image edit' : 'Start image generation', async form => {
+      const referenceAssetIds = chosenValues(form, 'referenceAssetIds');
+      if (referenceAssetIds.length > limit) throw new Error(`Select at most ${limit} additional references.`);
+      const values = formValues(form);
+      await submitRun({ setId: set.id, conceptId: previous?.conceptId || values.conceptId,
+        referenceAssetIds, instruction: values.instruction || '', ...(previous ? { parentAssetId: previous.id } : {}) }, { production: true });
+    });
+  if (previous) editor.fields.append(el('p', 'source-strip', `Original version: ${previous.name}`));
+  else {
+    const select = addField(editor.fields, 'Idea version', 'conceptId', '', { required: true, options: [] });
+    fillOptions(select, set.conceptIds.map(id => ({ value: id, label: state.data.concepts.find(idea => idea.id === id)?.title || id })), 'Choose an idea version', '');
+  }
+  addChoices(editor.fields, `Reference images · select up to ${limit}`, 'referenceAssetIds', state.data.assets.filter(asset => asset.id !== previous?.id));
+  addField(editor.fields, previous ? 'Editing instruction' : 'Additional direction', 'instruction', '',
+    { required: Boolean(previous), multiline: true, rows: 4, maxLength: 4000, hint: previous ? 'Describe one change. The original remains a separate version.' : 'Optional. The selected idea and current brief supply the creative direction.' });
 }
 
 function editCaption(asset) {
@@ -703,13 +733,14 @@ function assetCard(asset, set) {
   const selections = state.data.selections.filter((record) => record.targetType === 'asset' && record.targetId === asset.id);
   const adopted = selections.filter((record) => ['adopted', 'rejected'].includes(record.decision)).at(-1)?.decision === 'adopted';
   const publication = selections.filter((record) => ['published', 'unpublished'].includes(record.decision)).at(-1)?.decision;
-  const meta = el('div', 'card-topline'); meta.append(el('span', 'badge', adopted ? 'Adopted version' : 'Draft version'), el('span', 'card-meta', dateLabel(asset.createdAt))); content.append(meta, el('h3', '', asset.name), el('p', 'card-meta', `${asset.width} × ${asset.height} · ${asset.method === 'layered' ? 'Local template composition' : 'Imported image'}${asset.change === 'caption_only' ? ' · Caption edit' : ''}`));
+  const meta = el('div', 'card-topline'); meta.append(el('span', 'badge', adopted ? 'Adopted version' : 'Draft version'), el('span', 'card-meta', dateLabel(asset.createdAt))); content.append(meta, el('h3', '', asset.name), el('p', 'card-meta', `${asset.width} × ${asset.height} · ${asset.method === 'native' ? 'Native generated image' : asset.method === 'layered' ? 'Local template composition' : 'Imported image'}${asset.change === 'caption_only' ? ' · Caption edit' : asset.change === 'instruction_edit' ? ' · Instruction edit' : ''}`));
   if (publication) content.append(el('p', 'field-hint', `Manually marked ${publication}.`));
   if (asset.briefId !== set.currentBriefId) content.append(el('p', 'notice error', 'This image uses an earlier brief. Produce a new version under the current brief before adoption.'));
   if (asset.caption) content.append(el('p', 'work-body asset-caption', asset.caption));
   const actions = el('div', 'asset-actions');
   actions.append(assetFileLink(asset), projectButton('Edit caption', 'button secondary', () => editCaption(asset)), runtimeButton('Run review', () => assetTask(asset, 'review_asset')), projectButton('Feedback', 'text-button', () => assetFeedback(asset)));
   if (asset.composition) actions.append(projectButton('Recompose', 'text-button', () => composeImage(set, asset)));
+  if (asset.method === 'native') actions.append(productionButton('Edit image', () => produceImage(set, asset)));
   const reviews = state.data.reviews.filter((review) => review.assetId === asset.id);
   const unresolved = reviews.some((review) => review.issues.some((issue) => ['blocker', 'unable_to_judge'].includes(issue.severity) && !selections.some((record) => record.decision === 'issue_resolved' && record.reviewId === review.id && record.issueId === issue.id)));
   const adopt = projectButton(adopted ? 'Adoption recorded' : 'Adopt version', 'button primary', () => selectAsset(asset, 'adopted'));
@@ -726,11 +757,11 @@ function assetCard(asset, set) {
 function renderStudio(set) {
   const section = el('section', 'studio-section');
   const heading = el('div', 'view-toolbar'); const intro = el('div'); intro.append(el('span', 'section-number', 'STUDIO'), el('h3', '', 'Make, review, and choose.'));
-  heading.append(intro, projectButton('Import image', 'button secondary', () => uploadImage(set)), projectButton('Compose locally', 'button primary', () => composeImage(set))); section.append(heading);
-  if (set.archived) for (const node of heading.querySelectorAll('button')) node.disabled = true;
+  heading.append(intro, productionButton('Generate image', () => produceImage(set)), projectButton('Import image', 'button secondary', () => uploadImage(set)), projectButton('Compose locally', 'button primary', () => composeImage(set))); section.append(heading);
+  if (set.archived) for (const node of heading.querySelectorAll('button')) { node.disabled = true; node.dataset.blockedBySet = 'true'; }
   const capability = el('details', 'capability-note');
-  capability.append(el('summary', '', 'Native image generation & editing · Unavailable'));
-  capability.append(el('p', 'field-hint', state.imageRuntime?.detail || 'Image capability status is being checked. No native image request can be submitted.'));
+  capability.append(el('summary', '', `Native image generation & editing · ${state.imageRuntime?.available ? 'Ready' : 'Unavailable'}`));
+  capability.append(el('p', 'field-hint', state.imageRuntime?.available ? 'Each explicit production action uses your ChatGPT subscription and saves a new image version. Review it before adoption.' : state.imageRuntime?.detail || 'Image capability status is being checked. No native image request can be submitted.'));
   for (const blocker of state.imageRuntime?.blockers || []) capability.append(el('p', 'field-hint', blocker.detail || readable(blocker)));
   capability.append(button('Refresh image capability status', 'text-button', refreshImageRuntime)); section.append(capability);
   const allAssets = state.data.assets.filter((asset) => asset.setId === set.id);
@@ -949,7 +980,7 @@ async function refreshRuntime() {
     $('#runtime-dot').classList.toggle('ready', Boolean(runtime?.available));
     $('#runtime-status').textContent = runtime?.available ? 'Connected · Ready to create' : 'Creation unavailable';
     $('#runtime-detail').textContent = runtime?.available
-      ? `${readable(runtime.route)} · ${runtime.billing === 'subscription' ? 'Subscription account' : readable(runtime.billing)} · ${readable(runtime.version)}\nSubscription quota: unknown`
+      ? `${readable(runtime.route)} · ${runtime.billing === 'subscription' ? 'Subscription account' : readable(runtime.billing)} · ${readable(runtime.version)}\nSubscription quota: unknown${runtime.nativeSkills?.mayBePresent ? '\nNative Codex Skills may influence output.' : ''}`
       : runtimeGuidance();
     renderGenerationState();
   }
@@ -1008,7 +1039,7 @@ function renderGenerationState() {
     active.append(el('p', '', archiving ? 'Check disk space and permissions for the data directory, then restart the local service. Only archival will resume; the model will not run again. Refresh this page after restarting.' : unknown && !running ? 'Check the runtime records first. Starting another run makes a new model call and may create duplicate work. The app will not retry automatically.' : waiting && !running ? waitingGuidance(waiting) : 'Results are saved to this project. Closing this page does not cancel a run that has started.'));
   }
   updateEvidenceSelection();
-  for (const node of document.querySelectorAll('[data-needs-runtime]')) node.disabled = !canRun() || node.dataset.blockedBySet === 'true';
+  for (const node of document.querySelectorAll('[data-needs-runtime]')) node.disabled = !canRun() || node.dataset.blockedBySet === 'true' || (node.dataset.needsImage === 'true' && !state.imageRuntime?.available);
 }
 
 function tags(node, values) {
@@ -1383,7 +1414,7 @@ function showContext(context, run = null) {
     content.append(warnings);
   }
   content.append(el('h3', 'context-section-title', `Selected project memory · ${context.entries?.length ?? 0} records`));
-  if (!context.entries?.length) content.append(el('p', 'detail-text', context.assetId ? 'This task uses the selected image and the snapshot recorded below.' : 'No saved memory matches this goal. Unknown information remains explicit.'));
+  if (!context.entries?.length) content.append(el('p', 'detail-text', context.assetId || context.productionSnapshot ? 'This task uses the selected idea or image and the production snapshot recorded below.' : 'No saved memory matches this goal. Unknown information remains explicit.'));
   for (const entry of context.entries || []) {
     const item = el('article', 'context-entry');
     const record = contextRecord(entry);
@@ -1400,7 +1431,7 @@ function showContext(context, run = null) {
     content.append(omitted);
   }
   const technical = el('details', 'technical-details');
-  technical.append(el('summary', '', 'Version, skill, and usage details'), el('pre', '', JSON.stringify({ skill: context.skill, contextId: context.id, runId: run?.id, route: run?.route, usage: run?.usage ?? 'Unknown', metadata: run?.metadata, context }, null, 2)));
+  technical.append(el('summary', '', 'Version, skill, and usage details'), el('pre', '', JSON.stringify({ skill: context.skill, contextId: context.id, runId: run?.id, route: run?.route, usage: run?.usage ?? 'Unknown', metadata: run?.runtimeMetadata || run?.metadata, dispatchReservations: run?.dispatchReservations, context }, null, 2)));
   content.append(technical);
 }
 
@@ -1430,17 +1461,23 @@ function completedMessage(run) {
   if (taskType === 'synthesize_insights') return 'Insight synthesis completed. Review the saved results in Knowledge → Insights.';
   if (taskType === 'extract_brand') return 'Brand draft saved in Knowledge → Facts & references. Review and confirm it before it can become a brand fact.';
   if (taskType === 'review_asset') return 'Image review saved in its creative set. Inspect the issues before adopting a version.';
+  if (taskType === 'produce_image' || taskType === 'edit_image') return 'New image version saved in Studio and Project Memory. Review it before adoption. Earlier versions are preserved.';
   return 'Creative work saved. Favorite a version, leave feedback, or add selected ideas to a set.';
 }
 
-async function submitRun(input) {
+async function submitRun(input, { production = false } = {}) {
   if (isArchived()) throw new Error('Restore this project before starting a run.');
   if (state.submitting) throw new Error('Another request is being submitted.');
+  if (production) {
+    if (!canRun() || !state.imageRuntime?.available) throw new Error('Image production is unavailable. Refresh the connection or check Activity before starting another action.');
+    const currentSet = state.data.sets.find(set => set.id === input.setId);
+    if (!currentSet || currentSet.archived || !currentSet.conceptIds.includes(input.conceptId)) throw new Error('Choose an idea in an active creative set before production.');
+  }
   const projectId = state.projectId, epoch = state.epoch;
   let acceptedRun;
   state.submitting = true; hideNotice(); renderGenerationState();
   try {
-    const run = await api(`${projectPath(projectId)}/runs`, { ...input, requestId: crypto.randomUUID() });
+    const run = await api(`${projectPath(projectId)}/${production ? 'production' : 'runs'}`, { ...input, requestId: crypto.randomUUID() });
     acceptedRun = run;
     await refreshProject(projectId, epoch);
     if (projectId === state.projectId && run.status === 'succeeded') notify(completedMessage(run));

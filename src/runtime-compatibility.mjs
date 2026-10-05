@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm, realpath } from 'node:fs/promi
 import { join, resolve, sep } from 'node:path';
 
 const CANARY = 'THIRD_DRAFT_FORBIDDEN_AMBIENT_CANARY';
+const SKILL_CANARY = 'THIRD_DRAFT_OBSERVED_NATIVE_SKILL_CANARY';
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==', 'base64');
 const SCHEMA = { type: 'object', properties: { title: { type: 'string' } }, required: ['title'], additionalProperties: false };
 const OUTPUT = JSON.stringify({ title: 'Third Draft offline contract probe' });
@@ -25,7 +26,10 @@ export async function probeRuntimeContract({ command, environment, argumentsFor,
     visionInput: false, nativeAuth: false, apiAuthRejected: false };
   const evidence = { version, configHash, executableHash, intendedLiveModelRequests: 0,
     networkEvidence: 'configured-loopback-only; no process-wide network trace',
-    checkedAt: new Date().toISOString(), checks };
+    checkedAt: new Date().toISOString(), checks,
+    nativeSkills: { isolation: 'best-effort', mayBePresent: true, observationScope: 'compatibility-probe',
+      observed: false, catalogReferenceCount: 0, selectedSkillCount: 0, skillCanaryPresent: false,
+      warning: 'Native Skills may be present. Suppression is best effort; probe observations are not a per-run Skill inventory.' } };
   try {
     const profile = join(directory, 'profile'), user = join(directory, 'user'), cwd = join(directory, 'work');
     const probeEnvironment = { ...environment, CODEX_HOME: profile, USERPROFILE: user, HOME: user,
@@ -46,7 +50,7 @@ export async function probeRuntimeContract({ command, environment, argumentsFor,
     // redirect the Windows known home folder used by native skill discovery.
     for (const skillRoot of [join(profile, 'skills'), join(user, '.agents', 'skills'), join(cwd, '.agents', 'skills')]) {
       await mkdir(join(skillRoot, 'canary'), { recursive: true });
-      await writeFile(join(skillRoot, 'canary', 'SKILL.md'), `---\nname: canary\ndescription: ${CANARY}\n---\n${CANARY}`);
+      await writeFile(join(skillRoot, 'canary', 'SKILL.md'), `---\nname: canary\ndescription: ${SKILL_CANARY}\n---\n${SKILL_CANARY}`);
     }
     await writeFile(join(cwd, 'models.json'), JSON.stringify(catalog));
     await writeFile(join(cwd, 'schema.json'), JSON.stringify(SCHEMA));
@@ -112,23 +116,30 @@ export async function probeRuntimeContract({ command, environment, argumentsFor,
       check(JSON.stringify(request.body.text?.format?.schema) === JSON.stringify(SCHEMA), 'Structured output schema changed.');
       const tools = [...(request.body.tools ?? []), ...(request.body.input ?? []).filter(item => item.type === 'additional_tools').flatMap(item => item.tools ?? [])];
       check(tools.length === 0, 'Runtime exposed tools outside the text/vision contract.');
-      const input = JSON.stringify(request.body.input), fullRequest = JSON.stringify(request.body);
+      const fullRequest = JSON.stringify(request.body);
       const requestText = [request.body.instructions, ...(request.body.input ?? []).flatMap(item => item.content ?? []).map(item => item.text)]
         .filter(value => typeof value === 'string').join('\n');
-      const ambientSkillPaths = [...requestText.matchAll(/\(file: ([^)]*SKILL\.md)\)/g)].map(match => match[1]);
+      const catalogReferenceCount = [...fullRequest.matchAll(/\(file: [^)]*SKILL\.md\)/g)].length;
       const selectedSkillCount = [...fullRequest.matchAll(/<skill>/g)].length;
-      const selectedSkillPaths = [...requestText.matchAll(/<path>([^<]*SKILL\.md)<\/path>/g)].map(match => match[1]);
-      // Catalog suppression and explicit skill expansion are separate runtime
-      // behaviors. Log bounded path/count metadata, never skill contents.
-      evidence.ambientDiagnostics = { canaryPresent: fullRequest.includes(CANARY), skillReferenceCount: ambientSkillPaths.length,
-        skillReferencePaths: ambientSkillPaths.slice(0, 20), skillReferencePathsTruncated: ambientSkillPaths.length > 20,
-        selectedSkillCount, selectedSkillPaths: selectedSkillPaths.slice(0, 20), selectedSkillPathsTruncated: selectedSkillPaths.length > 20 };
-      check(!fullRequest.includes(CANARY) && !/\(file: [^)]*SKILL\.md\)/.test(fullRequest) && selectedSkillCount === 0,
-        'Runtime loaded ambient instructions or skills.');
+      // Skills are best effort. Keep bounded observations across probe phases,
+      // without persisting native Skill paths or contents in execution receipts.
+      const skills = evidence.nativeSkills;
+      skills.catalogReferenceCount = Math.max(skills.catalogReferenceCount, catalogReferenceCount);
+      skills.selectedSkillCount = Math.max(skills.selectedSkillCount, selectedSkillCount);
+      skills.skillCanaryPresent ||= fullRequest.includes(SKILL_CANARY);
+      skills.observed ||= catalogReferenceCount > 0 || selectedSkillCount > 0 || skills.skillCanaryPresent;
+      check(!fullRequest.includes(CANARY), 'Runtime loaded forbidden application configuration or instructions.');
       const imageInputs = (request.body.input ?? []).flatMap(item => item.content ?? []).filter(item => item.type === 'input_image');
       check(imageInputs.length === 1 && imageInputs[0].image_url === `data:image/png;base64,${PNG.toString('base64')}`,
         'Runtime changed or omitted the selected PNG input.');
-      check(!input.includes(cwd), 'Runtime exposed the private staging path in provider input.');
+      // Native environment context declares its cwd and the selected image
+      // wrapper names its staged file; Skills also carry native paths.
+      // The exact image bytes/count check above verifies the actual input.
+      const nonRuntimeText = requestText.replace(/<skill>[\s\S]*?<\/skill>/g, '')
+        .replace(/<skills_instructions>[\s\S]*?<\/skills_instructions>/g, '')
+        .replace(/<environment_context>[\s\S]*?<\/environment_context>/g, '')
+        .replaceAll(join(cwd, 'input.png'), '[selected-image]');
+      check(!nonRuntimeText.includes(cwd), 'Runtime exposed an unexpected staging path in provider input.');
       if (mode === 'success') {
         check(result.code === 0 && events.some(event => event.type === 'turn.completed'), 'Runtime did not report a completed structured turn.');
         const messages = events.filter(event => event.type === 'item.completed' && event.item?.type === 'agent_message');

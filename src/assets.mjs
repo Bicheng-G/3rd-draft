@@ -43,13 +43,38 @@ export class AssetService {
     if(!this.store.setConcepts(projectId,set.id).includes(concept.id))throw new AppError('invalid_input','Add this idea version to the set before production.');
     return {setId:set.id,briefId:brief.id,conceptId:concept.id,brandHash:brandHash(this.store,projectId),brief,concept};
   }
+  productionSnapshot(projectId,input){
+    const snapshot=this.snapshot(projectId,input);
+    const parent=input.parentAssetId?this.store.record('assets',projectId,input.parentAssetId):null;
+    if(parent&&(parent.method!=='native'||parent.setId!==snapshot.setId||parent.conceptId!==snapshot.conceptId||!parent.runId))
+      throw new AppError('invalid_input','Instruction edits require a native image version from this creative set and idea version.');
+    if(parent&&input.referenceAssetIds.includes(parent.id))throw new AppError('invalid_input','The edit source is already included; select only additional reference images.');
+    const reference=asset=>({id:asset.id,name:asset.name,source:asset.source,artifactHash:asset.artifactHash,contentHash:asset.contentHash});
+    const references=input.referenceAssetIds.map(assetId=>reference(this.store.record('assets',projectId,assetId)));
+    const confirmedBrand=[...new Map(this.store.rows('knowledge',projectId).filter(k=>k.kind==='brand'&&k.status==='confirmed').map(k=>[k.itemId,k])).values()];
+    // Explicit references are separate from both the brief's historical asset
+    // list and the prior AssetVersion being revised.
+    return {...snapshot,projectId,parent:parent?reference(parent):null,references,confirmedBrand,
+      instruction:input.instruction,capturedAt:now(),maxImageOperations:2};
+  }
+  productionOutput(projectId,run,normalized){
+    const snapshot=run.context.productionSnapshot;
+    const record={id:id(),name:snapshot.concept.title,source:'Third Draft native ChatGPT image production',method:'native',role:'work',
+      parentId:snapshot.parent?.id??null,runId:run.id,setId:snapshot.setId,briefId:snapshot.briefId,conceptId:snapshot.conceptId,
+      snapshot,caption:snapshot.concept.body,style:snapshot.brief.style,change:snapshot.parent?'instruction_edit':'generation',
+      instruction:snapshot.instruction,createdBy:'runtime',mime:'image/png',width:normalized.width,height:normalized.height,
+      inputHash:normalized.inputHash,createdAt:now(),schemaVersion:3,machineChecks:{decoded:true,metadataRemoved:true,nativeFileVerified:true}};
+    record.artifactPath=path.join('projects',projectId,'assets',record.id,'image.png');
+    record.artifactHash=hash(normalized.bytes);record.contentHash=hash(record);
+    return {record,imageBase64:normalized.bytes.toString('base64')};
+  }
   save(projectId,normalized,fields){
     this.store.assertWritable(projectId);
     const record={...fields,id:id(),mime:'image/png',width:normalized.width,height:normalized.height,inputHash:normalized.inputHash,createdAt:now(),schemaVersion:3};
     record.artifactPath=path.join('projects',projectId,'assets',record.id,'image.png');record.artifactHash=hash(normalized.bytes);record.contentHash=hash(record);
     const filename=this.store.safePath(record.artifactPath);mkdirSync(path.dirname(filename),{recursive:true});writeFileSync(filename+'.tmp',normalized.bytes,{flag:'wx'});
     if(hash(readFileSync(filename+'.tmp'))!==record.artifactHash)throw new AppError('archive_failed','Image write verification failed.',500);renameSync(filename+'.tmp',filename);
-    this.store.transaction(()=>{this.store.db.prepare('INSERT INTO assets VALUES (?,?,?,?,?,?,?,?)').run(record.id,projectId,record.parentId??null,record.runId??null,record.setId??null,record.conceptId??null,record.briefId??null,JSON.stringify(record));for(const ref of new Set([record.composition?.visualId,record.composition?.logoId].filter(Boolean)))this.store.db.prepare('INSERT INTO asset_links VALUES (?,?,?)').run(projectId,record.id,ref);});return record;
+    this.store.transaction(()=>{this.store.db.prepare('INSERT INTO assets VALUES (?,?,?,?,?,?,?,?)').run(record.id,projectId,record.parentId??null,record.runId??null,record.setId??null,record.conceptId??null,record.briefId??null,JSON.stringify(record));for(const ref of new Set([record.composition?.visualId,record.composition?.logoId,...(record.method==='native'?record.snapshot.references.map(ref=>ref.id):[])].filter(Boolean)))this.store.db.prepare('INSERT INTO asset_links VALUES (?,?,?)').run(projectId,record.id,ref);});return record;
   }
   async import(projectId,input){
     this.store.assertWritable(projectId);const name=text(input.name,'Image name',160),source=text(input.source,'Image source',500);

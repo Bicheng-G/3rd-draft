@@ -43,7 +43,7 @@ const TOOL_METADATA = Object.freeze({ shell_type: 'disabled', apply_patch_tool_t
   multi_agent_version: null, include_skills_usage_instructions: false,
   include_plugin_usage_instructions: false, include_apps_usage_instructions: false });
 export const RUNTIME_CONFIG_HASH = createHash('sha256')
-  .update(JSON.stringify({ contract: 5, config: CONFIG,
+  .update(JSON.stringify({ contract: 6, config: CONFIG,
     toolMetadata: TOOL_METADATA, visionInputLimits: VISION_INPUT_LIMITS }))
   .digest('hex');
 
@@ -333,7 +333,17 @@ export class CodexRuntime {
       }
     };
     await inspectTree(this.runtimeHome);
-    await inspectTree(this.environment.HOME);
+    // HOME also receives browser caches during interactive authentication.
+    // Check native input/state roots, not unrelated browser-managed contents.
+    for (const name of ['.agents', '.codex']) {
+      const path = join(this.environment.HOME, name);
+      let info;
+      try { info = await lstat(path); }
+      catch (error) { if (error.code === 'ENOENT') continue; throw error; }
+      if (!info.isDirectory() || info.isSymbolicLink())
+        throw new RuntimeError('unsupported_capability', 'Linked runtime profile state is not supported.');
+      await inspectTree(path);
+    }
     await assertNativeInstructionIsolation(this.environment);
   }
 
@@ -409,6 +419,7 @@ export class CodexRuntime {
       const compatibility = await this.probeCompatibility();
       base.version = compatibility.version;
       base.compatibility = compatibility;
+      base.nativeSkills = compatibility.nativeSkills;
       if (compatibility.status !== 'passed')
         return { ...base, reason: compatibility.reason || 'unsupported_capability', detail: compatibility.detail };
       const login = await this.command(['login', 'status', '-c', 'cli_auth_credentials_store="file"', '-c', 'forced_login_method="chatgpt"']);
@@ -454,7 +465,7 @@ export class CodexRuntime {
       // work product. It excludes prompts, rejected output and temporary paths.
       const receipt = () => ({ usage, metadata: { route: inspected.route, billing: inspected.billing,
         version: inspected.version, configHash: createHash('sha256').update(RUNTIME_CONFIG_HASH + JSON.stringify(disabledSkills)).digest('hex'),
-        compatibility: inspected.compatibility,
+        compatibility: inspected.compatibility, nativeSkills: inspected.nativeSkills,
         baseConfigHash: RUNTIME_CONFIG_HASH, disabledSkillCount: disabledSkills.length, threadId,
         model: null, modelSelection: 'runtime-default', tools: [], ephemeral: true,
         visionInput: { count: inputImages.length,

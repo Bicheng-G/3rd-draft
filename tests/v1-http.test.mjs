@@ -142,8 +142,9 @@ test('HTTP with explicit vision double: extraction stays draft, review blocks ad
   await json(`${base(a)}/sets/${set.id}/briefs`, { goal: 'Changed reading direction.', assetIds: [reference.id] });
   assert.equal((await json(`${base(a)}/sets/${set.id}/export`, undefined, 409)).error.code, 'stale_delivery');
   const count = runtime.calls.length, imageRuntime = await json('/api/image-runtime');
-  assert.equal(imageRuntime.available, false); assert.equal(imageRuntime.capabilities.generate.available, false); assert.equal(imageRuntime.capabilities.edit.available, false); assert.equal(imageRuntime.evidence.liveImageAttempts, 0);
-  assert.ok(imageRuntime.blockers.length > 0); assert.equal(runtime.calls.length, count, 'capability inspection must not fabricate image generation');
+  assert.equal(imageRuntime.available, false); assert.equal(imageRuntime.capabilities.generate.available, false); assert.equal(imageRuntime.capabilities.edit.available, false);
+  assert.equal(imageRuntime.reason, 'unsupported_capability'); assert.equal(imageRuntime.detail, 'Native image compatibility identity is unavailable.', 'A text-only double is not native image compatibility evidence.');
+  assert.equal(imageRuntime.compatibility, undefined); assert.equal(runtime.calls.length, count, 'capability inspection must not fabricate image generation');
   runtime.vision = false;
   assert.equal((await json(`${base(a)}/runs`, { taskType: 'review_asset', assetId: caption.id, goal: 'Review without vision.', language: 'English', requestId: id() }, 503)).error.code, 'unsupported_capability');
   assert.equal(runtime.calls.length, count);

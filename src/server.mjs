@@ -37,15 +37,15 @@ function lockData(store) {
   }
   return ()=>{if(readFileSync(lock,'utf8')===String(process.pid))unlinkSync(lock);};
 }
-export async function startServer({dataDir,port=4057,runtime,lock=true}={}) {
+export async function startServer({dataDir,port=4057,runtime,imageRuntime,lock=true}={}) {
   dataDir ??= process.env.THIRD_DRAFT_DATA_DIR || path.join(process.env.LOCALAPPDATA||path.join(os.homedir(),'.local','share'),'ThirdDraft');
   mkdirSync(safeDataPath(dataDir),{recursive:true});
   const unlock=lock?lockData({safePath:relative=>safeDataPath(dataDir,relative)}):()=>{};
   let store;
   try { store=new Store(dataDir);runtime ??= new CodexRuntime({runtimeHome:store.safePath(path.join('runtime','codex'))}); }
   catch(error){store?.close();unlock();throw error;}
-  const skills=new SkillLibrary(store),assetService=new AssetService(store),imageRuntime=new CodexImageRuntime({nativeRuntime:runtime});
-  const service=new CreativeService(store,runtime,{skills,assets:assetService});
+  const skills=new SkillLibrary(store),assetService=new AssetService(store);imageRuntime??=new CodexImageRuntime({nativeRuntime:runtime});
+  const service=new CreativeService(store,runtime,{skills,assets:assetService,imageRuntime});
   service.recover();
   const session=randomBytes(32).toString('hex');const csrf=randomBytes(32).toString('hex');
   const server=http.createServer(async(req,res)=>{
@@ -95,6 +95,7 @@ export async function startServer({dataDir,port=4057,runtime,lock=true}={}) {
         if(req.method==='POST'&&tail==='selections')return send(201,assetService.adopt(projectId,await jsonBody(req)));
         if(req.method==='POST'&&tail==='images')return send(201,await assetService.import(projectId,await jsonBody(req,28*1024*1024)));
         if(req.method==='POST'&&tail==='compose')return send(201,await assetService.compose(projectId,await jsonBody(req)));
+        if(req.method==='POST'&&tail==='production')return send(202,await service.startProduction(projectId,await jsonBody(req)));
         const image=tail.match(/^assets\/([^/]+)\/file$/);
         if(req.method==='GET'&&image){const content=assetService.read(projectId,image[1]);res.writeHead(200,{'Content-Type':'image/png'});res.end(content);return;}
         const caption=tail.match(/^assets\/([^/]+)\/caption$/);

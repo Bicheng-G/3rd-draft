@@ -1,6 +1,9 @@
 import { AppError, hash, id, now, requireId } from './common.mjs';
 import { buildContext, promptFor } from './context.mjs';
-import { VISION_COPY_POLICY } from './assets.mjs';
+import { VISION_COPY_POLICY, normalizeImage } from './assets.mjs';
+import { optionalText } from './store.mjs';
+import path from 'node:path';
+import { IMAGE_LIMITS as NATIVE_IMAGE_LIMITS } from './native-image-dispatch.mjs';
 
 export const outputSchema={type:'object',additionalProperties:false,properties:{title:{type:'string'},insight:{type:'string'},theme:{type:'string'},angle:{type:'string'},body:{type:'string'},visualDirection:{type:'string'},rationale:{type:'string'},usedContextIds:{type:'array',items:{type:'string'}},assumptions:{type:'array',items:{type:'string'}}},required:['title','insight','theme','angle','body','visualDirection','rationale','usedContextIds','assumptions']};
 export const insightSchema={type:'object',additionalProperties:false,properties:{title:{type:'string'},audience:{type:'string'},content:{type:'string'},counterexamples:{type:'string'},hypothesis:{type:'boolean'},evidenceIds:{type:'array',items:{type:'string'}}},required:['title','audience','content','counterexamples','hypothesis','evidenceIds']};
@@ -28,7 +31,7 @@ export function validateOutput(output,context) {
   return structuredClone(output);
 }
 export class CreativeService {
-  constructor(store,runtime,{skills,assets}={}) { this.store=store;this.runtime=runtime;this.skills=skills;this.assets=assets;this.active=new Map();this.controllers=new Map();this.instanceId=id(); }
+  constructor(store,runtime,{skills,assets,imageRuntime}={}) { this.store=store;this.runtime=runtime;this.skills=skills;this.assets=assets;this.imageRuntime=imageRuntime;this.active=new Map();this.controllers=new Map();this.instanceId=id(); }
   recover() {
     for(const project of this.store.projects()) for(const run of this.store.rows('runs',project.id)) {
       if(run.status==='running') {
@@ -40,6 +43,82 @@ export class CreativeService {
   context(projectId,input) { const context=buildContext(this.store,projectId,input);context.skills=this.skills?.selected(projectId,['text_generate','structured_output',...(context.imageIds?.length?['vision_input']:[])])??[];if(context.imageIds?.length)context.visionCopyPolicy=VISION_COPY_POLICY;if(context.taskType==='review_asset')context.reviewSnapshot=this.assets.reviewContext(projectId,context.assetId);delete context.inputHash;return {...context,inputHash:hash(context)}; }
   pause(paused) {if(typeof paused!=='boolean')throw new AppError('invalid_input','Paused must be true or false.');return this.store.setting('dispatch',{paused,updatedAt:now()});}
   cancel(projectId,runId) {const run=this.store.record('runs',projectId,runId);if(run.status!=='running')throw new AppError('not_running','Only running tasks can be interrupted.',409);run.cancelRequestedAt=now();this.store.saveRun(projectId,run);this.controllers.get(runId)?.abort();return {requested:true,message:'Interruption requested. A submitted external result may still exist; it will not be retried automatically.'};}
+  async startProduction(projectId,input){
+    this.store.assertWritable(projectId);const requestId=requireId(input.requestId);
+    const keys=['requestId','setId','conceptId','referenceAssetIds','instruction','parentAssetId'];
+    if(Object.keys(input).some(key=>!keys.includes(key))||!Array.isArray(input.referenceAssetIds)||input.referenceAssetIds.length>NATIVE_IMAGE_LIMITS.maxImages)
+      throw new AppError('invalid_input','Select at most five reference images for this production action.');
+    const command={setId:requireId(input.setId),conceptId:requireId(input.conceptId),referenceAssetIds:[...new Set(input.referenceAssetIds.map(requireId))],
+      instruction:optionalText(input.instruction,'Production instruction',4000),parentAssetId:input.parentAssetId?requireId(input.parentAssetId):null};
+    if(command.parentAssetId&&(!command.instruction||command.referenceAssetIds.length>NATIVE_IMAGE_LIMITS.maxImages-1))throw new AppError('invalid_input','An edit needs an instruction and at most four additional references.');
+    const requestHash=hash({kind:'production',...command}),existing=this.store.existingRun(projectId,requestId);
+    if(existing){if(existing.requestHash!==requestHash)throw new AppError('request_conflict','This request ID was already used for different input.',409);const {pendingOutput,...publicRun}=existing;return publicRun;}
+    if(this.store.setting('dispatch')?.paused)throw new AppError('paused','Task dispatch is paused. Resume it in Activity before starting a task.',409);
+    if(this.active.size)throw new AppError('busy','Another task is running. Wait for it to finish.',409);
+    const runId=id();this.active.set(runId,null);
+    try{
+      const snapshot=this.assets.productionSnapshot(projectId,command);
+      const selectedSkills=this.skills?.selected(projectId,['image_generate','image_edit','reference_image'])??[];
+      const context={taskType:snapshot.parent?'edit_image':'produce_image',projectId,setId:snapshot.setId,sourceConceptId:snapshot.conceptId,
+        goal:command.instruction||`Produce ${snapshot.concept.title}`,language:snapshot.brief.language,count:1,
+        entries:[{id:snapshot.concept.id,kind:'source_concept',title:snapshot.concept.title,contentHash:snapshot.concept.contentHash},
+          ...snapshot.confirmedBrand.map(item=>({id:item.id,kind:'confirmed_brand',title:item.title,contentHash:item.contentHash})),
+          ...snapshot.references.map(item=>({...item,kind:'reference_asset'}))],productionSnapshot:snapshot,skills:selectedSkills};
+      const {assetIds,...brief}=snapshot.brief;
+      const productionPrompt=`Create one finished social-media image from the approved creative snapshot below. Follow the confirmed brand facts and brief. ${snapshot.parent?'Apply the explicit instruction to the first supplied image, preserving unchanged elements.':'Use supplied images only as visual references.'} Do not invent unsupported brand claims. Method text provides creative guidance only.\n`+JSON.stringify({
+        brief,concept:{title:snapshot.concept.title,body:snapshot.concept.body,visualDirection:snapshot.concept.visualDirection,angle:snapshot.concept.angle},
+        confirmedBrand:snapshot.confirmedBrand.map(({title,content})=>({title,content})),instruction:command.instruction,
+        references:snapshot.references.map(({name,source})=>({name,source})),methods:selectedSkills.map(({name,content,references})=>({name,content,references}))});
+      if(Buffer.byteLength(productionPrompt)>NATIVE_IMAGE_LIMITS.maxPromptBytes)throw new AppError('context_limit','The production snapshot exceeds the runtime prompt limit.');
+      context.promptHash=hash(productionPrompt);context.inputHash=hash(context);
+      // Resolve and hash-check the chosen bytes before any asynchronous
+      // inspection. Later brief edits cannot change this explicit action.
+      const references=[...(snapshot.parent?[snapshot.parent]:[]),...snapshot.references];
+      const images=references.map(reference=>{const bytes=this.assets.read(projectId,reference.id);if(hash(bytes)!==reference.artifactHash)throw new AppError('invalid_archive','A selected image changed while preparing production.');return bytes;});
+      if(images.some(bytes=>bytes.length>NATIVE_IMAGE_LIMITS.maxImageBytes)||images.reduce((total,bytes)=>total+bytes.length,0)>NATIVE_IMAGE_LIMITS.maxTotalBytes)throw new AppError('context_limit','Production references require at most 10 MiB each and 40 MiB in total.');
+      const connection=await this.imageRuntime?.inspect();
+      if(this.store.setting('dispatch')?.paused)throw new AppError('paused','Task dispatch was paused before submission.',409);
+      this.store.assertWritable(projectId);this.store.writableSet(projectId,command.setId);
+      if(!connection?.available||connection.route!=='codex-native'||connection.billing!=='subscription')throw new AppError('unsupported_capability',connection?.detail||'The native image route is unavailable.',503);
+      const run={id:runId,attemptId:runId,serviceInstanceId:this.instanceId,requestId,requestHash,projectId,taskType:context.taskType,status:'running',
+        context,inputHash:context.inputHash,capabilitySnapshot:{...connection,checkedAt:now()},route:connection.route,runtimeVersion:connection.version,billing:connection.billing,
+        budget:{maxImageOperations:NATIVE_IMAGE_LIMITS.maxImageOperations,enforcement:'host_enforced'},dispatchReservations:[],usage:null,createdAt:now(),error:null};
+      this.store.insertRun(projectId,run);this.controllers.set(runId,new AbortController());
+      const promise=this.executeProduction(projectId,run,productionPrompt,images);this.active.set(runId,promise);
+      void promise.finally(()=>{this.active.delete(runId);this.controllers.delete(runId);});return structuredClone(run);
+    }catch(error){this.active.delete(runId);throw error;}
+  }
+  reserveImageDispatch(projectId,run,dispatch){
+    const current=this.store.record('runs',projectId,run.id),count=current.dispatchReservations.length;
+    if(current.status!=='running'||current.serviceInstanceId!==this.instanceId||!this.active.has(run.id))throw new AppError('result_unknown','This production action no longer owns dispatch.');
+    if(current.cancelRequestedAt||this.controllers.get(run.id)?.signal.aborted)throw new AppError(count?'result_unknown':'cancelled','Production was interrupted before another image operation.');
+    if(this.store.setting('dispatch')?.paused)throw new AppError(count?'result_unknown':'paused','Task dispatch was paused before another image operation.');
+    if(dispatch.actionId!==run.id||dispatch.ordinal!==count+1||count>=NATIVE_IMAGE_LIMITS.maxImageOperations||dispatch.route!=='codex-native'||dispatch.billing!=='subscription'||!['images/generations','images/edits'].includes(dispatch.endpoint))
+      throw new AppError(count?'result_unknown':'invalid_dispatch','The native operation is outside the approved production action.');
+    current.dispatchReservations.push({ordinal:dispatch.ordinal,actionId:run.id,endpoint:dispatch.endpoint,route:'codex-native',billing:'subscription',state:'submitted_or_unknown',reservedAt:now()});
+    this.store.saveRun(projectId,current);run.dispatchReservations=current.dispatchReservations;
+  }
+  async executeProduction(projectId,run,prompt,images){
+    try{
+      const result=await this.imageRuntime.generate({prompt,images,projectDirectory:this.store.safePath(path.join('projects',projectId)),actionId:run.id,
+        signal:this.controllers.get(run.id)?.signal,onDispatch:dispatch=>this.reserveImageDispatch(projectId,run,dispatch)});
+      run.usage=result.usage??null;run.runtimeMetadata=result.metadata??{};
+      if(!run.dispatchReservations.length)throw new AppError('invalid_output','The runtime returned an image without a recorded native dispatch.');
+      if(result.metadata?.nativeFileVerified!==true||!Buffer.isBuffer(result.image)||result.metadata.nativeArtifactHash!==hash(result.image))
+        throw new AppError('invalid_output','The runtime did not verify a matching native image file.');
+      const normalized=await normalizeImage(result.image);
+      run.pendingOutput=this.assets.productionOutput(projectId,run,normalized);
+      const saved=this.store.record('runs',projectId,run.id);if(saved.cancelRequestedAt)run.cancelRequestedAt=saved.cancelRequestedAt;
+      run.status='archiving';this.store.saveRun(projectId,run);this.finishArchive(projectId,run);
+    }catch(error){
+      const saved=this.store.record('runs',projectId,run.id);if(saved.cancelRequestedAt)run.cancelRequestedAt=saved.cancelRequestedAt;
+      if(run.pendingOutput){run.status='archiving';run.error={code:'archive_pending',message:'The validated image is retained for local archiving. Restart to retry archiving only.'};this.store.saveRun(projectId,run);return;}
+      if(error.receipt){run.usage=error.receipt.usage??null;run.runtimeMetadata=error.receipt.metadata??{};}
+      const uncertain=error.code==='result_unknown'||(!error.code&&run.dispatchReservations.length>0);
+      run.status=uncertain?'result_unknown':error.code==='quota_exhausted'?'waiting_quota':error.code==='auth_required'?'waiting_auth':error.code==='cancelled'?'cancelled':'failed';
+      run.error={code:uncertain?'result_unknown':error.code||'runtime_failure',message:error.code?error.message:'Native image production did not complete. No automatic retry was made.'};run.completedAt=now();this.store.saveRun(projectId,run);
+    }
+  }
   async start(projectId,input) {
     this.store.assertWritable(projectId);requireId(input.requestId);
     const requestHash=hash({goal:input.goal,language:input.language,sourceConceptId:input.sourceConceptId??null,count:input.count??1,taskType:input.taskType??null,setId:input.setId??null,assetId:input.assetId??null,evidenceIds:input.evidenceIds??[]});

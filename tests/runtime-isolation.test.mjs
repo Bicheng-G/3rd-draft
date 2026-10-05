@@ -28,29 +28,12 @@ test('application profile preparation isolates state from an occupied configured
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
-test('installed CLI satisfies the offline contract or remains unavailable on explicit ambient skill loading', { timeout: 100_000 }, async t => {
+test('installed CLI passes hard offline checks while native Skill loading remains observational', { timeout: 100_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'third-draft-contract-test-'));
   try {
     const runtime = new CodexRuntime({ runtimeHome: join(directory, 'runtime', 'codex') });
     const result = await runtime.probeCompatibility();
     if (result.reason === 'runtime_unavailable') return t.skip(result.detail);
-    if (result.status === 'failed') {
-      assert.equal(result.reason, 'unsupported_capability', JSON.stringify(result));
-      assert.equal(result.detail, 'Offline runtime contract failed: Runtime loaded ambient instructions or skills.');
-      assert.equal(result.failedPhase, 'success');
-      assert.equal(result.ambientDiagnostics.canaryPresent, true);
-      assert.equal(result.ambientDiagnostics.selectedSkillCount, 1);
-      assert.deepEqual(result.observedLocalRequests, [{ mode: 'success', path: '/v1/responses' }]);
-      assert.ok(Object.values(result.checks).every(value => value === false));
-      assert.equal(result.evidenceId, undefined);
-      assert.equal(result.intendedLiveModelRequests, 0);
-      const status = await runtime.inspect();
-      assert.equal(status.available, false);
-      assert.equal(status.reason, 'unsupported_capability');
-      assert.equal(status.authSetup, undefined, 'An incompatible runtime must not offer production setup.');
-      t.diagnostic('Installed runtime is BLOCKED: explicit ambient skill loading; this is fail-closed regression evidence, not runtime acceptance.');
-      return;
-    }
     assert.equal(result.status, 'passed', JSON.stringify(result));
     assert.match(result.version, /^\d+\.\d+/);
     assert.match(result.executableHash, /^[0-9a-f]{64}$/);
@@ -63,12 +46,32 @@ test('installed CLI satisfies the offline contract or remains unavailable on exp
     assert.equal(result.checks.visionInput, true);
     assert.equal(result.checks.nativeAuth, true);
     assert.equal(result.checks.apiAuthRejected, true);
+    assert.equal(result.nativeSkills.isolation, 'best-effort');
+    assert.equal(result.nativeSkills.mayBePresent, true);
+    assert.equal(result.nativeSkills.observationScope, 'compatibility-probe');
     const second = await runtime.probeCompatibility();
     assert.equal(second.evidenceId, result.evidenceId);
     const status = await runtime.inspect();
+    assert.deepEqual(status.nativeSkills, result.nativeSkills);
     assert.equal(status.reason, 'auth_required', 'The empty app profile must not reuse personal login.');
     assert.equal(status.authSetup.home, runtime.runtimeHome);
     assert.ok(status.authSetup.args.includes('cli_auth_credentials_store="file"'));
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('unrelated browser cache does not exhaust native profile integrity inspection', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'third-draft-profile-cache-test-'));
+  try {
+    const runtime = new CodexRuntime({ runtimeHome: join(directory, 'runtime', 'codex') });
+    await runtime.prepareProfile();
+    const cache = join(runtime.environment.LOCALAPPDATA, 'unrelated-browser-cache');
+    await mkdir(cache);
+    for (let index = 0; index < 5001; index += 100) {
+      await Promise.all(Array.from({ length: Math.min(100, 5001 - index) }, (_, offset) =>
+        writeFile(join(cache, String(index + offset)), '')));
+    }
+    await runtime.prepareProfile();
+    assert.equal((await readdir(cache)).length, 5001);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
@@ -134,7 +137,7 @@ test('linked skill roots are refused before any native command can run', async (
     const runtime = new CodexRuntime({ runtimeHome: join(directory, 'runtime', 'codex') });
     await runtime.prepareProfile();
     const personal = join(directory, 'personal'); await mkdir(personal);
-    for (const path of [join(runtime.runtimeHome, 'skills'), join(runtime.environment.HOME, '.agents')]) {
+    for (const path of [join(runtime.runtimeHome, 'skills'), join(runtime.environment.HOME, '.agents'), join(runtime.environment.HOME, '.codex')]) {
       await symlink(personal, path, 'junction');
       await assert.rejects(runtime.prepareProfile(), { code: 'unsupported_capability' });
       await rm(path, { recursive: true });
