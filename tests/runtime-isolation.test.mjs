@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CodexRuntime } from '../src/runtime.mjs';
 
-test('application runtime ignores occupied global home without reading or modifying its files', async () => {
+test('application profile preparation isolates state from an occupied configured global home', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'third-draft-profile-test-'));
   try {
     const globalHome = join(directory, 'personal-codex');
@@ -28,12 +28,29 @@ test('application runtime ignores occupied global home without reading or modify
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
-test('installed CLI passes bounded offline compatibility probes without an exact version exemption', { timeout: 100_000 }, async t => {
+test('installed CLI satisfies the offline contract or remains unavailable on explicit ambient skill loading', { timeout: 100_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'third-draft-contract-test-'));
   try {
     const runtime = new CodexRuntime({ runtimeHome: join(directory, 'runtime', 'codex') });
     const result = await runtime.probeCompatibility();
     if (result.reason === 'runtime_unavailable') return t.skip(result.detail);
+    if (result.status === 'failed') {
+      assert.equal(result.reason, 'unsupported_capability', JSON.stringify(result));
+      assert.equal(result.detail, 'Offline runtime contract failed: Runtime loaded ambient instructions or skills.');
+      assert.equal(result.failedPhase, 'success');
+      assert.equal(result.ambientDiagnostics.canaryPresent, true);
+      assert.equal(result.ambientDiagnostics.selectedSkillCount, 1);
+      assert.deepEqual(result.observedLocalRequests, [{ mode: 'success', path: '/v1/responses' }]);
+      assert.ok(Object.values(result.checks).every(value => value === false));
+      assert.equal(result.evidenceId, undefined);
+      assert.equal(result.intendedLiveModelRequests, 0);
+      const status = await runtime.inspect();
+      assert.equal(status.available, false);
+      assert.equal(status.reason, 'unsupported_capability');
+      assert.equal(status.authSetup, undefined, 'An incompatible runtime must not offer production setup.');
+      t.diagnostic('Installed runtime is BLOCKED: explicit ambient skill loading; this is fail-closed regression evidence, not runtime acceptance.');
+      return;
+    }
     assert.equal(result.status, 'passed', JSON.stringify(result));
     assert.match(result.version, /^\d+\.\d+/);
     assert.match(result.executableHash, /^[0-9a-f]{64}$/);

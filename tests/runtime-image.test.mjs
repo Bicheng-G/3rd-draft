@@ -19,10 +19,14 @@ test('healthy native text authentication never implies accepted image capability
   assert.equal(status.evidence.liveImageAttempts, 0);
   assert.equal(status.evidence.acceptedNativeImageProbes, 0);
   assert.equal(status.evidence.publicSourceMatchesBinary, 'not-established');
-  assert.deepEqual(status.blockers.map(item => item.code), ['image_call_budget_unenforced', 'reference_read_isolation_failed']);
+  assert.deepEqual(status.blockers.map(item => item.code), ['project_filesystem_isolation_unavailable']);
   assert.equal(status.evidence.observedCliVersion, '0.160.0');
-  assert.equal(status.evidence.observedImageOperationsInOneTurn, 2);
-  assert.equal(status.evidence.unapprovedReferenceRead, true);
+  assert.equal(status.evidence.approvedBoundary.maxImageOperations, 2);
+  assert.equal(status.evidence.approvedBoundary.selectedReferenceOnly, false);
+  assert.equal(status.evidence.budgetProbe.status, 'local-harness-demonstrated');
+  assert.equal(status.evidence.budgetProbe.productionIntegrated, false);
+  assert.equal(status.evidence.filesystemProbe.status, 'positive-project-read-unavailable');
+  assert.equal(status.evidence.supersededProbe.provesCurrentBoundaryFailure, false);
 });
 
 test('generate, edit, and reference requests fail before touching the native runtime or files', async () => {
@@ -49,5 +53,5 @@ test('unavailable native connection remains separate from unresolved image contr
   assert.equal(status.nativeAvailable, false);
   assert.equal(status.available, false);
   status.blockers[0].code = 'modified-consumer-copy';
-  assert.equal((await runtime.inspect()).blockers[0].code, 'image_call_budget_unenforced');
+  assert.equal((await runtime.inspect()).blockers[0].code, 'project_filesystem_isolation_unavailable');
 });

@@ -1,13 +1,11 @@
 import { CodexRuntime, RuntimeError } from './runtime.mjs';
 
 // Capability discovery is not an accepted integration. Keep image submission
-// closed until both controls are enforced before the native tool executes.
+// closed until the approved two-operation/project-filesystem boundary is proven.
 // No fallback to an API key, another provider, or a model-written file exists.
 const BLOCKERS = Object.freeze([
-  Object.freeze({ code: 'image_call_budget_unenforced',
-    detail: 'Codex 0.160.0 accepted two native image operations in one turn in the bounded local transport probe. No enforced one-operation limit was demonstrated.' }),
-  Object.freeze({ code: 'reference_read_isolation_failed',
-    detail: 'Codex 0.160.0 read an unapproved synthetic reference outside the work directory despite a separate profile and read-only sandbox. Native image production remains disabled.' }),
+  Object.freeze({ code: 'project_filesystem_isolation_unavailable',
+    detail: 'Codex 0.160.0 on Windows cannot read even a valid staged project reference with the tested project-only filesystem policy. Elevated mode requires root read access; unelevated mode refuses split read restrictions. Normal host and other-project isolation has not been demonstrated.' }),
 ]);
 
 const CHECKED_AT = '2026-10-05';
@@ -18,7 +16,7 @@ const SOURCES = Object.freeze({
   referencePaths: `${SOURCE_BASE}/codex-rs/ext/image-generation/src/tool.rs`,
   hookFailureBehavior: `${SOURCE_BASE}/codex-rs/hooks/src/events/pre_tool_use.rs`,
 });
-const UNAVAILABLE = 'Native image generation is unavailable: the image-call limit and reference isolation have not passed validation. No request was submitted.';
+const UNAVAILABLE = 'Native image generation is unavailable: the current-project filesystem boundary has not passed validation on the tested runtime. No request was submitted.';
 
 export class CodexImageRuntime {
   constructor({ nativeRuntime, ...runtimeOptions } = {}) {
@@ -44,8 +42,14 @@ export class CodexImageRuntime {
         toolExposure: 'loopback-only', exposedTool: 'image_gen.imagegen',
         appServerResultSchema: 'imageGeneration',
         liveImageAttempts: 0, acceptedNativeImageProbes: 0,
-        controlProbe: 'tools/probe-native-image.mjs', controlProbeTransport: 'local-dummy',
-        observedImageOperationsInOneTurn: 2, unapprovedReferenceRead: true,
+        approvedBoundary: { maxImageOperations: 2, budgetEnforcement: 'harness-or-native',
+          readableFiles: 'current-project-isolated-staging', selectedReferenceOnly: false },
+        budgetProbe: { status: 'local-harness-demonstrated', script: 'tools/probe-image-budget.mjs',
+          exclusiveActionOwner: true, durableReservations: true, productionIntegrated: false },
+        filesystemProbe: { status: 'positive-project-read-unavailable', script: 'tools/probe-image-filesystem.mjs',
+          elevated: 'requires-root-read', unelevated: 'split-read-policy-unsupported' },
+        supersededProbe: { script: 'tools/probe-native-image.mjs', observedImageOperations: 2,
+          outsideWorkDirectoryReference: 'inside-the-same-probe-runtime-root', provesCurrentBoundaryFailure: false },
         conclusion: 'blocked', observationScope: 'The tested binary and probe configuration are identified in the V1 validation record. Other binaries are unverified.',
         // Public source is explanatory evidence, not an assertion that its
         // revision is the installed desktop binary's build revision.

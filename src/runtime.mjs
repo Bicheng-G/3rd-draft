@@ -33,6 +33,8 @@ const CONFIG = Object.freeze({
   'tools.experimental_request_user_input.enabled': false, 'agents.enabled': false,
   'history.persistence': 'none', 'shell_environment_policy.inherit': 'none',
   'features.skip_host_skill_discovery': true,
+  'skills.include_instructions': false, 'skills.bundled.enabled': false,
+  'cloud.skills.enabled': false,
   ...Object.fromEntries(DISABLED_FEATURES.map(name => [`features.${name}`, false])),
 });
 const TOOL_METADATA = Object.freeze({ shell_type: 'disabled', apply_patch_tool_type: null,
@@ -41,7 +43,7 @@ const TOOL_METADATA = Object.freeze({ shell_type: 'disabled', apply_patch_tool_t
   multi_agent_version: null, include_skills_usage_instructions: false,
   include_plugin_usage_instructions: false, include_apps_usage_instructions: false });
 export const RUNTIME_CONFIG_HASH = createHash('sha256')
-  .update(JSON.stringify({ contract: 4, config: CONFIG,
+  .update(JSON.stringify({ contract: 5, config: CONFIG,
     toolMetadata: TOOL_METADATA, visionInputLimits: VISION_INPUT_LIMITS }))
   .digest('hex');
 
