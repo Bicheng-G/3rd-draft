@@ -24,9 +24,9 @@ rg -n '需要查找的标识或术语' docs
 
 `HEAD` 不存在时据实记录，不伪造 revision。检查任务差异用 `git diff` / `git diff --cached`，但它们不显示 untracked 文件，相关新增文件须单独阅读。涉及 worktree/远端操作时再查询 `git worktree list --porcelain`、`git remote -v` 和所需 refs；未刷新远端就不声称最新。
 
-首次 `npm ci` 安装锁定 sharp/fflate，前端无需 build。`npm start` 启动 loopback 服务，`npm test` 运行 Node 测试，`npm run validate:live` 只读检查按历史 v0.1 记录建立的两个合成项目（不调用模型），不是 V1 验收命令。默认数据根为 `%LOCALAPPDATA%\ThirdDraft`；测试用 `.workbench/`（已忽略），真实资产不放仓库。可用 `THIRD_DRAFT_DATA_DIR` / `THIRD_DRAFT_PORT` 配置；`THIRD_DRAFT_CODEX_PATH` 指定 CLI 路径。Codex 固定 `0.159.0-alpha.12.1`；认证须为 ChatGPT，API 登录不接受。普通沙箱进程可能无法读取宿主凭证存储，不能据此推断用户未登录。模板读取 Windows 已安装 Arial/Georgia，缺失即明确失败。完整启动/备份恢复步骤见根 [README](../README.md)。
+首次 `npm ci` 安装锁定 sharp/fflate，前端无需 build。`npm start` 启动 loopback 服务，`npm test` 运行 Node 测试，`npm run validate:live` 只读检查历史 v0.1 合成项目，不是当前里程碑验收。默认数据根为 `%LOCALAPPDATA%\ThirdDraft`；测试用 `.workbench/`，真实资产不放仓库。`THIRD_DRAFT_DATA_DIR` / `THIRD_DRAFT_PORT` 配置目录/端口；`THIRD_DRAFT_CODEX_PATH` 指定 CLI。2026-10-05 起不再只按 exact version equality 判兼容：每个新二进制/契约组合执行有界本地探针，失败关闭。旧 `0.159.0-alpha.12.1` 证据保留，不能用本机 `0.160.0` 冒充。运行时使用数据根 `runtime/codex` 及隔离用户目录；`npm run runtime:check` 只做 dummy loopback 检查，`npm run runtime:login` 显式在该 profile 进行独立 ChatGPT 登录。个人 Codex 登录不自动沿用，个人全局指令无需清空。模板读取 Windows 已安装 Arial/Georgia，缺失即失败。详见根 [README](../README.md)。
 
-测试使用 fake runtime 的故障用例不证明真实模型成功；实际 CLI 的 loopback dummy transport 测试不消耗模型额度，CLI 缺失/版本不匹配时单独 SKIP，不能把跳过当隔离验证。真实两轮证据另记。工程场景与 V1 评测未执行部分如实保留 NOT_RUN。
+测试使用 fake runtime 的故障用例不证明真实模型成功；实际 CLI 的 loopback dummy transport 测试不调用真实模型，CLI 缺失时单独 SKIP，未知版本执行探针而非直接跳过。跳过不能当隔离验证；应用探针失败则拒绝启动模型任务。`node tools/probe-native-image.mjs` 复现图片边界负例，不验证真实图片服务、订阅计费或质量。历史真实调用与本轮证据分开，未执行部分保留 NOT_RUN。
 
 ## 操作边界
 

@@ -1,8 +1,56 @@
 # V1 — 实现差距与验证记录
 
-**结果：INCONCLUSIVE — V1 尚未完成。** 2026-10-02 工程集成记录；保留同日开工审计。用户已在 v0.1 通过后明确要求继续实现完整 V1 并采用英文产品界面；本页记录既有要求的差距和证据，不新增产品定义或治理机制。下面先列新增工程证据，再保留明确标注的历史差距矩阵。工程测试、实际模型任务、浏览器操作和产品质量验收分别取证，不能互相替代。
+**当前里程碑结果：BLOCKED — 领域与 runtime 隔离修正完成；原生图片制作不得启用。** 2026-10-05 用户将本轮范围收敛为先纠错、再做有界可行性调查，明确允许在控制无法证明时停止。完整 V1 仍未验收；10 月 2 日的工程、真实任务及性能证据保留在下方历史部分，不当作新 profile / 新二进制的验证。取舍见 [ADR-015](../architecture/decisions.md#adr-015--修正领域语义以独立-profile-和有界行为探针接入-codex)。
 
-## 当前工程实现与证据边界（2026-10-02）
+## 当前提交、最低证据与结论（2026-10-05）
+
+开工基线为 `main` / `6ecc44a5707aca6a6997fd2d230ef27c4eb027d8`，工作区原先干净。实现与测试提交为 `51f4feb0c4659dbdc259cc2fb627a48be40ae20d`；本页随后以文档提交补记该 revision 的验证结果，不改变受测代码。没有发布或推送，没有把凭证、真实资产、runtime 会话或私有报告加入 Git。下方曾记载的 unborn `main` 仅描述 10 月 2 日当时状态。
+
+| 最低验收证据 | 当前观察 | 判定 / 限制 |
+|---|---|---|
+| 同一个 ConceptVersion 在两个 Creative Sets 中的决定独立，跨项目 / 未关联 set 被拒绝 | schema v3 的选择事件保存 set 外键；快照分别给出各 set 当前决定；领域回归及浏览器将 Beta 拒绝、Alpha 选择，Beta 不变 | PASS。收藏和发布仍有各自语义；旧无范围事件保留历史，不自动推断所属 set |
+| AssetVersion 修订与输入依赖分开，旧文件不可变 | 新合成无 parent；视觉/logo 进入既有 `asset_links`。Recompose / caption 修订指向原作品，原图字节不变；Recompose 另拒绝跨项目、错 set / concept、非 layered 来源 | PASS。历史错误 parent 由读取层解释为 dependency，原 payload 不重写；备份 / 导出保留区别 |
+| 手工创意来源及最小创建上下文可追溯 | `createdBy=user`、`runId=null`、来源版本、创建目标、当时品牌基线及显式洞察/证据版本保存；续作仍能识别祖先基线变更，固定引用不换成新版本 | PASS。品牌基线不表示用户使用了所有事实；旧未知上下文明确告警，不制造生成 run |
+| 不依赖或修改个人 Codex 指令、配置、认证、skills、会话 | 独立应用 home / user / temp 与文件认证；继承环境 allowlist；个人非空指令夹具不受影响；junction / hardlink 路径拒绝；应用没有复制个人认证 | PASS 工程与实装局部行为。新 profile 未登录时正确返回 `auth_required`；交互登录与真实订阅调用本轮 NOT_RUN |
+| 新 runtime 以必要行为验收，失败关闭 | 实际 0.160.0 二进制通过结构化输出、显式 PNG、无工具/环境指令、禁重试、原生 ChatGPT 认证 fixture 与 API 认证拒绝；缓存按二进制与契约哈希 | PASS，仅文本/受限视觉输入契约。无 exact version equality；没有静默把旧 pin 的证据转给新版本 |
+| 图片操作数在派发前受限，参考图只来自批准输入 | 同 turn 批准上限为 1、批准参考为空；实装工具仍发出 2 次图片请求，第二次把工作目录外未批准 PNG 放入请求 | FAIL，足以判定 BLOCKED。单独 profile、read-only sandbox、prompt 要求与事后取消均不足以实现本次必要控制 |
+| 图片结果有可靠文件证据，失败 / 未知不伪装成功 | adapter 在 inspect、准备文件、提交前拒绝 native generate/edit/reference；本地负例 CLI JSON 没有可用于归档的图片资产事件 | 门禁 PASS；真实图片文件解码/归档、生成→编辑版本链→Project Memory 闭环 NOT_RUN，不能据模型消息判成功 |
+| 不发生静默 API/BYOK/其他计费路线 fallback | 生产文本配置固定原生订阅地址、ChatGPT 登录、重试 0；API-auth fixture 在 0 次请求时拒绝；图片入口持续关闭 | PASS 配置/本地协议检查，不是实际账单证明。图片调查的 API 形状 loopback fixture 不是产品计费路线 |
+| 原有项目隔离、持久任务 / 取消 / 未知结果 / 本地归档恢复不退化 | 完整 `npm test` 含跨项目、重复请求、取消及迟到结果、receipt、恢复、图片前置拒绝、备份与 migration | 102/102 PASS，0 fail / 0 skip；double 与实际 CLI 本地 transport 明确区分 |
+
+### Runtime 身份与实装兼容性
+
+历史 pin 为 **0.159.0-alpha.12.1**；本轮该旧二进制不可用，未重新测试。实际默认 **0.160.0** 的文件为 `C:\Users\zhuzh\AppData\Local\OpenAI\Codex\bin\f544b3844e0f14e9\codex.exe`，SHA-256 `4b01d5920e6785614727443bbecf343f4dedbb7347052b72ba805aab6353ef01`。新的支持政策按能力探针验收实际二进制，不维护复杂版本矩阵；服务重启后重新解析安装路径，二进制或配置哈希变更必须重新探测。旧版本字符串也不能豁免新契约检查。
+
+2026-10-05T06:26:01.067Z，root 从仓库目录运行 `npm run runtime:check`，指定独立合成数据根 `.workbench/runtime-contract-acceptance`，退出 0。契约哈希 `9aba436601051ac1d1fcb40d05090a59b423f2ecf03c0ac05ac5fec97a116c34`；证据 ID `078c4305ca36252e327ff18c63955607a2e63f4cb1b590ff28c9a8746ae0903b`。成功、HTTP 503、断流各观察 1 次 loopback 请求；后两者收到 `turn.failed` 后由宿主终止，退出 1，未重试；API 认证 fixture 确认被识别后，生产配置在 0 次请求时拒绝。探针使用虚构 ChatGPT token/account，与生产相同 provider 参数，仅把地址指向 loopback；两侧请求压缩均关闭。没有系统级网络追踪，不声称整个原生进程绝无附带网络活动。
+
+保留的失败：仓库目录早期运行在 CLI 已报告 `turn.failed` 后仍等到 20 秒超时，并有 Node pipe handles 阻止退出；临时根目录的早期通过不能覆盖这一失败。随后修正显式失败终止与管道释放，最终相同仓库入口通过且自然退出。失败日志 `.workbench/runtime-contract-acceptance-failed.log` SHA-256 `fe9e1b4a1f1c222e40b7b007ec0abda818af3c87ba4731436579bc08612733e2`；最终日志 `.workbench/runtime-contract-acceptance-final.log` SHA-256 `ef16e4f7d81023930c137230c9a26fa3b1568d7c00000e1d97e2dc1ed2162c3e`。任务创建的旧诊断进程已关闭。独立复核 `.workbench/runtime-compatibility-2026-10-05-final.json` 还确认空应用 profile 返回 `auth_required`，其 SHA-256 为 `1ee8da792ecbc1aeeb6157ed9e9979ffbacdaf47351eb475d64c380914108e74`。
+
+### 原生图片的有界失败证据与解阻要求
+
+`node tools/probe-native-image.mjs` 的可复现检查于 2026-10-05T06:10:56.333Z 得到 `BLOCKED_CONTROLS_DEMONSTRATED`，不是图片成功。安装二进制身份同上；该工具的契约哈希 `f37a5e69eadf915203cca90f827a9d2482df1ea6c378756343fc8edf8be22cf0`。每次检查独立 home、dummy token、20 秒 deadline、最多 12 个本地请求 / 3 轮模型响应，只启用 native image tool，其他工具禁用；返回图片也是合成 fixture。
+
+实际观察：3 次本地 responses 请求，2 次本地图片端点请求（generation、edit）；编辑请求包含未批准的目录外 PNG，fixture SHA-256 `4ff6ab670a58c14270e034e2090d9a432caa263a14e0a25785386b0c12f880b5`。原生 JSON 图片资产事件数为 0。该安装二进制生成的 app-server schema 未发现宿主可直接调用的图片 RPC；这不等于证明所有未来接口均不可行。保留报告 `.workbench/native-image-probe/result-2026-10-05T06-10-56-333Z.json` SHA-256 `d0978f2a0013b743fc7ceaf30a02033b35a7662fd43d452c285f55d043c23657`。调查脚本保留在 Git 供重现；本地报告/fixture 保持忽略，后续执行保存独立时间戳报告。初步调查与该复现都只使用本地 transport；**real image-service attempts = 0，accepted native image probes = 0，real credentials used = false，subscription billing validated = false**。
+
+这些负例只适用于已记录二进制和探针配置，不能当作历史 pin 的实测，也不能用公开源码 revision 代替二进制身份。已有公开源码关于参考路径 / hook fail-open 的材料保留在下方历史来源，作为解释线索；最终 BLOCKED 依据是实装控制失败。文本契约通过不启用图片能力，用户批准制作也不能自动约束原生工具下一次内部调用。
+
+最小解阻需要受支持 runtime/tooling 提供：宿主发起的单次 native 图片操作（或等价的原生执行层原子预算），只接受批准参考字节 / 受限句柄、在派发前 fail closed、固定订阅认证且无其他计费回退，并返回可验证的结构化图片文件身份。仅升级版本号不够。若改 runtime，至少重验上表全部隔离、认证、禁重试、输出和文件控制；先完成一次真实生成的文件解码/哈希/不可变归档/Project Memory，再在同一路线做一次指令编辑，验证原 AssetVersion 不变及新 parent 正确，才能记录 FEASIBLE 和端到端 PASS。当前停止在选择这种最小接口或工具变更的产品/架构决定边界，不自行加代理框架、runtime fork、API 提供商或更宽权限。
+
+### 回归、浏览器与证据限制
+
+完整 `npm test`：**102/102 PASS，96 个顶层测试及 6 个嵌套 lineage 用例，0 fail / 0 skip，13.56 秒**。日志 `.workbench/production-milestone-tests.log` SHA-256 `c23dc721a4f90bbf7d0dc5c4a47133e5c08129c4e77d0fb8601aba55c7b86c58`。另通过前端、server、login helper 与 image probe 的语法检查及 task-owned diff 检查。定向 25 项 runtime / 8 项 domain-corrections 是该回归的子集，不累加总数。
+
+明确的 RED→GREEN 包括：set 决策互相污染、手工祖先上下文缺失、合成输入误作修订 parent、Recompose 未保存 prior version、schema 3 备份 SQL `set_id` 有值而 payload 丢失 `setId` 仍被接受，以及 profile 链接路径 / 运行失败管道问题。备份现在要求两层 scope 一致，拒绝发生在目标目录创建前；schema 2 的 null/缺失历史语义仍可恢复。
+
+真实浏览器使用合成双 set / 手工创意 fixture 与禁止调用的 runtime：Beta 拒绝、Alpha 选择后独立状态保持；编辑手工创意时保留固定证据/洞察选项，保存后显示用户作者、原版本与创建基线，刷新后原版和修订均存在。结果 PASS；新会话 console 0 errors / 0 warnings。操作脚本 `.workbench/ui-decisions.js`、`.workbench/ui-manual-version.js` 及 `.playwright-cli/` 快照为忽略的本地证据；没有把合成使用情况记为用户采用。Recompose 的本轮验证来自领域回归和 UI 请求接线检查，未另做浏览器生成操作。
+
+本轮没有真实品牌生成/图片编辑、没有新订阅 profile 的交互登录验收、没有端到端图片归档或质量验收。10 月 2 日的五次真实订阅任务、性能及视觉输入质量证据不重复扩张为本轮已验证。现有工程修正可以保留，产品仍不能声称已经闭合真实图片制作循环。
+
+## 历史：2026-10-02 V1 工程集成记录
+
+**当时结果：INCONCLUSIVE — V1 尚未完成。** 用户当时要求继续完整 V1 和英文界面；以下保留当时的实现范围、失败与验收限制，后续语义和 runtime 政策以本页 2026-10-05 记录及 ADR-015 为准。
+
+## 历史工程实现与证据边界（2026-10-02）
 
 当前仍为 unborn `main`、无 HEAD，未提交/未发布；不能填写不存在的 Git revision。root 负责共享 schema、服务/API、集成决定和最终 acceptance；worker 分别交付原生路线调查与受限视觉输入、研究读取与性能夹具、英文浏览器界面、Skill/备份及独立 HTTP 测试。本页由 root 汇总收到及亲自复核的证据，区分阶段测试、最终回归及真实任务。取舍见 [ADR-014](../architecture/decisions.md#adr-014--v1-沿用本地领域模型扩展版本化创作与受限视觉输入)，启动及恢复见[根 README](../../README.md)。
 

@@ -2,7 +2,7 @@
 
 基线：V1 实施中；v0.1 文字里程碑已验收 · 2026-10-02 · Asia/Singapore。维护责任：产品负责人维护范围与验收，架构负责人维护技术决策；root 负责本次集成与验收。
 
-最新授权：v0.1 文字 Walking Skeleton 通过后，用户明确要求继续实施完整 V1，并使用英文产品界面。该新请求取代上一轮停止边界；内容语言仍由每次 brief 独立选择。当前 FR/AC/T 差距与新增证据见 [V1 验证记录](product/validation-v1.md)，此前六项关闭证据原样保留在 [v0.1 验证记录](product/validation-v0.1.md)，启动/测试见 [项目指南](PROJECT_GUIDE.md)。FR-17/18 仍为 P1；下表契约状态不等于整份功能已实现。
+最新授权（2026-10-05）：暂停外围 V1 扩展，先修正领域语义和全局 Codex 环境依赖，再做原生图片有界可行性判断。独立 profile 与行为兼容探针替代全局空指令要求和单一版本等值门禁；文字通过不意味着图片通过。本轮图片结论为 BLOCKED，精确证据和最小解阻要求见 [V1 验证记录](product/validation-v1.md)。完整 V1 基线保留，FR-17/18 仍为 P1；旧文字证据见 [v0.1 验证记录](product/validation-v0.1.md)，启动/测试见 [项目指南](PROJECT_GUIDE.md)。
 
 这是供后续开发和产品讨论使用的持久知识。没有标记为已实现的功能均为设计要求；没有附运行记录的能力均未在本产品验证。
 
@@ -34,7 +34,7 @@
 | [PRD](product/prd-v0.1.md) | V1 要实现和验收什么？ | 保留原文件路径与 FR/AC ID；NFR-06 更新为英文界面 |
 | [流程与交互](product/workflows-and-ux.md) | 用户如何完成任务和处理失败？ | v0.1 设计 |
 | [系统架构](architecture/system-design.md) | 模块职责、存储、执行和安全如何分工？ | 原完整设计及 V1 实施注记；图片 M0 未通过 |
-| [领域与记忆](architecture/domain-and-memory.md) | 什么是事实、版本、血缘和项目隔离？ | 既有契约及 schema v2 实施注记 |
+| [领域与记忆](architecture/domain-and-memory.md) | 什么是事实、版本、血缘和项目隔离？ | 既有契约及 schema v3 范围/来源修正 |
 | [Agent 与 Skill](architecture/agents-and-skills.md) | 谁负责判断，如何组合和约束 skills？ | v0.1 契约 |
 | [Provider 契约](architecture/provider-contract.md) | 如何接入、探测能力、计费和恢复？ | 文本/视觉输入已测；原生图片能力未通过 |
 | [架构决策记录](architecture/decisions.md) | 选择了什么，为什么，何时重议？ | ADR 基线 |
