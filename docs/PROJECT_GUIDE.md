@@ -5,7 +5,7 @@
 ## 项目事实与环境前提
 
 - 3rd Draft 仓库承载面向个人创作者的多项目长期创意工作空间；产品正式命名仍见 [路线图 O-01](product/roadmap.md)。v0.1 是 Windows 本地单人、浏览器界面，项目拥有知识和资产。
-- v0.1 文字闭环已通过；当前按用户后续授权实施 V1，英文 UI、批量创意、set/brief、来源/洞察、图片导入/本地模板、Review、Skill 与备份模块已进入集成。受控原生 Generate→文件校验/归档→一次指令 Edit→不可变新版本已完成真实订阅验证，每个显式 Production Action 最多 2 次图片操作。当前停止外围扩展并进入工作流 dogfooding，完整 V1 未验收。历史与当前证据分别见 [v0.1](product/validation-v0.1.md)、[V1](product/validation-v1.md)。没有 CI/公开发布配置。
+- v0.1 实际 RidePass dogfood 最终通过，结论 PASS WITH NON-BLOCKING LIMITATIONS；服务重启后的独立新任务复用已存判断并影响归档图片，六项关闭标准有证据，本轮停止。此前 V1 授权已带来英文 UI、批量创意、set/brief、来源/洞察、图片导入/本地模板、Review、Skill 与备份模块；完整 V1 未验收。受控原生 Generate→文件校验/归档→一次指令 Edit→不可变新版本已完成真实订阅验证，每个显式 Production Action 最多 2 次图片操作，该证据在 dogfood 中复用。历史与当前证据分别见 [v0.1](product/validation-v0.1.md)、[V1](product/validation-v1.md)。没有 CI/公开发布配置。
 - 已选 Node.js 22.15.0 + 内置 SQLite 3.49.1（experimental）及零依赖浏览器 ES modules，见 ADR-013。React/Vite/TypeScript 仍为原候选，不是安装前提。
 - 产品决定由用户作出；实现由当次受托维护者负责。发布负责人、集成/发布目标及适用授权在相关操作前核实，不能从分支名或历史任务记录推定。
 - 开发宿主的工具和并发能力不等于产品 runtime 的能力。使用时检查实际可用工具和限制，不固定模型/profile，不改变用户 root model 或个人 trust 设置。

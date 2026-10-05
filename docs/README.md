@@ -1,8 +1,10 @@
 # 产品知识库
 
-当前状态：V1 实施中，最小原生图片闭环已验证；v0.1 文字里程碑保留历史验收 · 2026-10-05 · Asia/Singapore。维护责任：产品负责人维护范围与验收，架构负责人维护技术决策；root 负责本次集成与验收。
+当前状态：RidePass 实际项目 v0.1 最终 dogfood **PASS WITH NON-BLOCKING LIMITATIONS**；六项记忆闭环关闭标准通过，完整 V1 未验收，本轮停止实施 · 2026-10-05 · Asia/Singapore。维护责任：产品负责人维护范围与验收，架构负责人维护技术决策；root 负责本次集成与验收。
 
-最新授权与结果（2026-10-05）：暂停外围 V1 扩展，完成领域语义修正、应用独立 Codex profile 和最小原生图片闭环。实际二进制的有界行为探针替代全局空指令要求和单一版本等值门禁；文字与图片分别验证。ADR-017 将个人原生 Skill 抑制改为 best effort，保留项目数据、计费、批准和调用预算的硬边界。当前图片路线由应用在本地 Responses 中构造唯一原生图片调用，只使用应用暂存的项目图片，并通过固定订阅端点和持久化最多 2 次操作控制；不声称通用 OS 沙箱隔离。独立 ChatGPT profile 的真实 Generate 和一次指令 Edit 均成功，旧版保留、文件校验和新版本归档已通过，当前最小切片为 FEASIBLE，停止扩展并进入工作流 dogfooding。完整 V1 尚未验收，FR-17/18 仍为 P1；准确身份、限制和历史失败见 [V1 验证记录](product/validation-v1.md)，旧文字证据见 [v0.1 验证记录](product/validation-v0.1.md)，启动/测试见 [项目指南](PROJECT_GUIDE.md)。
+最新任务已收敛为 v0.1 最终验收：在真实 RidePass 项目中保存图片创作判断，服务重启后由独立新任务自动检索，影响新文案、视觉方向及归档图片；新增真实 2 次文字 + 2 次图片均成功，132 项回归通过，无产品代码修复。证据/六项映射与非阻断限制见 [v0.1 最终验收](product/validation-v0.1.md#ridepass-最终-dogfood2026-10-05)。本次没有关闭完整 V1 质量/采用/发布门槛，历史原生制作证据继续复用。
+
+此前原生制作里程碑（2026-10-05）：暂停外围 V1 扩展，完成领域语义修正、应用独立 Codex profile 和最小原生图片闭环。实际二进制的有界行为探针替代全局空指令要求和单一版本等值门禁；文字与图片分别验证。ADR-017 将个人原生 Skill 抑制改为 best effort，保留项目数据、计费、批准和调用预算的硬边界。当前图片路线由应用在本地 Responses 中构造唯一原生图片调用，只使用应用暂存的项目图片，并通过固定订阅端点和持久化最多 2 次操作控制；不声称通用 OS 沙箱隔离。独立 ChatGPT profile 的真实 Generate 和一次指令 Edit 均成功，旧版保留、文件校验和新版本归档已通过，最小切片为 FEASIBLE，其证据由上述 dogfood 复用。完整 V1 尚未验收，FR-17/18 仍为 P1；准确身份、限制和历史失败见 [V1 验证记录](product/validation-v1.md)，历史与最终记忆验收见 [v0.1 验证记录](product/validation-v0.1.md)，启动/测试见 [项目指南](PROJECT_GUIDE.md)。
 
 这是供后续开发和产品讨论使用的持久知识。没有标记为已实现的功能均为设计要求；没有附运行记录的能力均未在本产品验证。
 
@@ -40,7 +42,7 @@
 | [架构决策记录](architecture/decisions.md) | 选择了什么，为什么，何时重议？ | ADR 基线 |
 | [质量评测](product/evaluation.md) | 如何证明不输手工流程且减少操作？ | 未执行的验证计划 |
 | [V1 验证记录](product/validation-v1.md) | 已有实现与完整要求差在哪，新增证据是什么？ | 工程、真实五任务、重启/备份及英文 UI 证据；V1 尚未通过 |
-| [v0.1 验证记录](product/validation-v0.1.md) | 文字记忆闭环曾证明了什么？ | 2026-10-02 PASS；原范围和版本的历史证据 |
+| [v0.1 验证记录](product/validation-v0.1.md) | 真实项目跨次记忆闭环是否成立？ | 2026-10-05 RidePass 最终 PASS WITH NON-BLOCKING LIMITATIONS；保留 2026-10-02 历史证据 |
 | [路线图与风险](product/roadmap.md) | 实施顺序、停止条件和未决事项？ | 排序后的 backlog |
 | [Brand Pack 模板](templates/brand-pack.md) | 如何输入并确认品牌信息？ | 可复用模板 |
 | [Creative Brief 模板](templates/creative-brief.md) | 如何完整交接一套创意？ | 可复用模板 |

@@ -1,5 +1,82 @@
 # v0.1 Walking Skeleton — 关闭标准与验证记录
 
+**当前最终验收：PASS WITH NON-BLOCKING LIMITATIONS — RidePass 实际项目 dogfood 通过（2026-10-05，Asia/Singapore）。** 六项关闭标准都有当前实测或前提未变的复用证据；真实项目的已存创作判断在服务重启后的独立新任务中被选取，并影响新文案、视觉方向和原生归档图片。无 v0.1 blocker，无产品代码修复。仅关闭 v0.1 记忆闭环；完整 V1 未验收，本轮停止，不继续实施 V1。下面的 2026-10-02 结论及原记录保留历史身份。
+
+## RidePass 最终 dogfood（2026-10-05）
+
+### 范围、起点与预先固定的程序
+
+用户明确要求用真实 RidePass 验收当前 Third Draft 的跨次记忆核心假设，允许最小必要修复，通过后更新文档、提交、保持工作树干净、展示图片并停止。不是重启完整 V1、发布或客户外部动作授权。开工分支 `codex/production-loop-feasibility`，完整 HEAD **`21b7014183d6d6d8117db8e05a632c2ea0e38c0e`**；staged/unstaged/untracked 均干净。经 `git diff 734b4b2413da154aa1a0ce273f8d93037dcd36f7 HEAD -- src tests capabilities package.json package-lock.json` 核对，当前实现与此前原生图片闭环受测代码一致。
+
+先阅读产品边界、PRD、下方六项关闭标准、评测、领域/系统/Provider/Skill 契约、ADR-013/017、已有 v0.1/V1 证据及相关源码。沿用六项标准；中文界面要求已有 NFR-06 英文界面后继决定，native Skill containment 按 ADR-017 为 best effort，不恢复旧纯度门禁。历史文字记录末尾关于全局指令为空的限制只描述旧 runtime，不适用于当前应用独立 profile。
+
+RidePass 材料来自只读本地仓库，clean `staging` **`870409e50dc16b397bb19645d30b3adfff7d6d80`**：README 的固定通勤定位、index.html 的公开表达与 FAQ 限定、DESIGN.md 的 Calm Commute Confidence，以及产品 authority index 对历史意图/已批准政策/运行证据的区分。没有 fetch 或生产访问，不声称远端最新或线上已符合所有政策。未修改 RidePass 仓库，也未导入客户、路线、支付或联系方式数据。
+
+首个真实调用前在忽略的 `.workbench/ridepass-dogfood/protocol.json` 固定输入、程序、分母与判定，SHA-256 **`cdcba9ad5c5231c6c8da0ac06b76a7c2fda7f8426a1c0b53cbd26d93fd52985a`**。选择最小真实日常需要：一个 Monday rider introduction，再做另一个 midweek Organic post。每轮 1 个文字创意、1 次显式图片制作；不重证此前已成功的一次 Edit，不新增研究、Skill 包、Review 或第三个模型任务。
+
+操作全部经过真实浏览器 UI：创建 RidePass 项目；保存有来源的产品描述/禁用承诺，明确确认后才使用；将受众痛点与设计方向保留为 reference/hypothesis；同时保存项目真实存在但与当前创作无关的 ERP POC 工程资料。第一轮创意和图片归档后，在该图片上保存明确 **project scope** 的判断：用乘客上车前、带工作包的日常步行瞬间表达安心感，让人而非汽车/豪华感成为主角，文案不作准时保证。判断是此次受托创作操作，不伪称既有客户研究、品牌产品事实或投放效果。
+
+品牌确认及制作选择由受用户委托的 root 操作 UI；应用记录的 `createdBy=user` 表示用户命令入口，不能据此声称真人逐条点击、亲自审稿或最终采用。source 字段保留 delegated acceptance operator 身份；只是确认已有来源的描述，不新增 RidePass 产品政策。
+
+读出完整首轮 checkpoint，确认已成功且无待归档任务后，停止实际服务进程并在同一数据根/独立应用 ChatGPT profile 重启。新进程的完整项目 snapshot 和文件哈希与 checkpoint 深度相等。第二轮从 **Independent ideas** 开始：`sourceConceptId=null`、`setId=null`、`imageIds=[]`，仅要求一个不同日常角度的 midweek post；没有重复上车前/工作包/豪华车等判断。第二个 set 的 brief 仅引用保存的新创意和视觉方向，图片 Additional direction 留空，也没有选择第一张图片作为参考。
+
+### 已有证明与本次新增证明：六项关闭标准
+
+编号、FR/AC/T 映射沿用下方原关闭标准，不把适用子集扩大成完整 AC 或 V1 通过。
+
+| 项 | 本次前已证明、可以复用的证据 | RidePass 本次新证据 | v0.1 结果 |
+|---|---|---|---|
+| 1. 浏览器可用链路 | 历史双项目创建/切换/确认/归档；后继英文 UI 和 Studio Generate/Edit 已测 | UI 新建真实项目、录入/确认、预览、两个独立创意、两个 set 的选择/制作、图片反馈；重启后从 control 项目切回 RidePass，Knowledge → Images 可见两张产物。API/helper 仅验收读取/上下文预览，无 DB 改写 | PASS |
+| 2. 实际执行与血缘 | 历史 2/2 文本；当前独立 profile 原生 Generate/Edit、文件回收和编辑 parent 已有真实证据，前提未变 | 新增 2/2 实际文字与 2/2 原生图片；ContextManifest/inputHash、creative-draft v2 内容/hash、能力快照、route/attempt、文本文件与图片 SHA-256 验证。两图均完整解码 1254×1254；nativeFileVerified=true、modelSelfReportUsed=false，各 1 reservation。成功在归档后成立 | PASS |
+| 3. 跨次影响 | 历史合成项目重启后续作复用局部反馈，但尚未证明真实品牌独立新任务 | 第一图判断明确保存后重启；第二轮新的 service instance 和 ephemeral native thread，无源版本指针。4 条 manifest 自动选入确认约束、相关 reference、首轮创意及图片 project feedback，并给理由。新文案写到电梯厅/上车点，视觉方向明确上车前步行及车辆画外；实际新图体现该场景，旧记录/文件全部不变 | PASS |
+| 4. 记忆语义与相关性 | 既有有界关键词检索、概念/asset/set 等反馈范围、事实确认与不可变版本回归 | 原未确认草稿和真实 ERP 工程资料分别因未确认/无主题匹配排除；仅 4 条相关记忆。反馈保持 project feedback 身份，确认品牌条目仍只有 1；未把产物/选择升级为事实。第二轮保存后只读 context 预览还能检索到新创意及原判断，证明积累可继续复用；没有因此启动第三次生成 | PASS |
+| 5. 隔离与路线 | ADR-017 的有限原生执行面、固定订阅端点、两次操作预算、独立 profile 和无 BYOK fallback；旧 OS wrapper 负例保留 | RidePass context 不含已有 reading-ritual control 项目 ID；跨项目取 RidePass 文本/图/任务、RidePass 引用另一项目创意、另一项目引用 RidePass 图片共 5 项，均 404。control snapshot 检查前后相等。真实 4 runs 全部 codex-native/subscription，无路线回退；图片 usage、额度/成本仍 unknown | PASS，保留已批准 best-effort 限制 |
+| 6. 失败与恢复 | 归档失败、receipt、事务 rollback、取消/迟到、重启 result_unknown 不重放及预算恢复测试；此处 fake/local transport 不冒充真实 provider 故障 | 当前 `npm test` 132/132 PASS、0 fail/skip；无效跨项目引用未创建新 run；首轮完整 state/hash 重启不变、成功 run 未重发，后续仍能读取首轮产物。真实调用无失败，不另作收费故障注入 | PASS，结合有效工程故障证据 |
+
+### 实际影响与证据边界
+
+第一轮从一般的重复路线介绍出发，图中乘客在住宅上车点旁，汽车仍占较大面积。判断保存后，第二轮的发布文案将开头转为经过熟悉电梯厅、走向上车点的具体 midweek 瞬间；visualDirection 明确 passenger/work bag/before boarding，并要求车辆失焦或画外。root 直接查看两张归档 PNG：第二张以乘客在电梯厅向外行走为主体，工作包、走廊、绿植与上车点可见，汽车不在画面中。图片动作的 instruction 为空、参考列表为空，其快照中的新 concept 已带这段方向；这是 **记忆 → context → Skill → 新创意 → ProductionSnapshot → native image → 验证归档/Project Memory** 的实际传播。
+
+模型的引用 ID 与 rationale 提供关联说明；结论同时依据实际文案、保存的视觉方向及图片像素，不能仅靠模型声称“已用反馈”。第一轮已部分符合日常人像方向，不能把差异描述成完全从豪华车转向人像；本次新证据是更具体的上车前步行判断在独立新任务中持久复用。无 A/B 移除反馈对照，不声称统计因果、普遍质量提升或长期收益。
+
+### 环境、运行分母与指纹
+
+Windows 本地 Node **22.15.0**、内置 SQLite；浏览器使用 Codex IAB 的真实 UI，通过 cua_repl 中的 Playwright locator 操作。图片/文字均沿用应用自己的已独立登录 ChatGPT profile，数据根 `.workbench/native-production-acceptance/`，loopback `127.0.0.1:12080`。实际 **Codex 0.160.0**，二进制 SHA-256 **`4b01d5920e6785614727443bbecf343f4dedbb7347052b72ba805aab6353ef01`**；基础契约 6、图片契约身份与 [2026-10-05 原生验证](validation-v1.md#实际-runtimeprofile-与有界探针)相同。新服务按实现重新通过本地能力探针；这些 dummy 请求不计入真实生成分母。
+
+| 新增真实操作 | 时间（2026-10-05 SGT） | 归档文件 SHA-256 |
+|---|---|---|
+| 第一轮文字 | 17:11:45.065–17:12:05.189 | `af7f31ed6186cc99ba68a09f1cb34276e34db584cf4b8d554425a7337862a599`，1178 bytes |
+| 第一轮图片 | 17:13:44.939–17:14:11.379 | `8f154524db2ec1b9034eb4d6d800dc509eb67d7b8c4c5217f0b80de0fe608009`，1254×1254 PNG |
+| 第二轮独立文字 | 17:18:12.946–17:18:35.526 | `dab8d38a9b06ed3de91db2dc9a2c6ae63d92b3db855275613dfa92499c0edffe`，1401 bytes |
+| 第二轮图片 | 17:19:59.585–17:20:31.950 | `6bae2269ce7f5ef508fc5dfc99fe76a0a150615a185d33910769cc3a7b8f1ccc`，1254×1254 PNG |
+
+真实分母：**2 text + 2 image = 4/4 succeeded，失败 0，重新抽样 0，额外 Edit 0，API fallback 0**；此前已证明的 Generate/Edit 另列为复用证据，不与本次分母相加。两图原生输入文件 hash 分别为 `4664d3d976e497443a9353452ab13ea6d9641611336d7a5038cdbdfece094ad5`、`b8f1fc2ad7a071eb075900b9353f7cadd74d7a385aecc7d01a8583b6deeca357`，匹配归档 AssetVersion.inputHash；归档去元数据/重新编码，artifactHash 合法不同。两个新生成 parent 均 null，reference/dependency 均空；未用新生成冒充对首图的编辑。
+
+creative-draft **v2** SHA-256 `7e065689b033a6c2f641b78adfc5737b2c5a353e46747243523d7dbd3868037b`；两轮 ContextManifest hash 为 `6ef70f48c4581eb158fe6a21323a4408265db65d0252891cdf5e364405773f39`、`093639874c59b00a3dcc53d701de1df7c484a573075471b85127f02ea9990e28`。按固定 manifest 和已核对源码重建的发送 prompt hash 为 `ab2b60a95b691bb1e0749d7a29ec59582520e009448be9fa9979f0aa21e6d8e4`、`f7e870d1bf70d25318d6597b5eebe577dc20fc1ce3dd762d930482206505a7af`；这是源码/快照重建核验，未声称对真实 provider 网络做独立抓包。两次实际 text token 返回为 input/output 5725/398、6325/485；模型身份、图片 usage、剩余额度/费用 unknown。
+
+所有原始资料、会话、作品、项目 ID 和完整运行 ID 保留在忽略目录，不进入 Git。定位证据：
+
+- `.workbench/ridepass-dogfood/before-restart.json`、`after-restart.json`、`final.json` 保存只读项目快照及文件哈希；复验脚本 `verify.mjs` 不写业务 DB、不调用 provider，检查整个首轮 state/hash、旧版本、两个不同 thread/instance、manifest/Skill hash、图片解码/原生证据、5 个项目负例及第三轮取材预览。
+- `verified.json` SHA-256 **`ea95f2faae255bf80f52af35507e22ca4e8f300466edcfe6dc1f36a4d615bc65`**，`final.json` SHA-256 **`b22a953904f55af55b8bc49b78b462de83184f78fb061d8eb2b9cd9da35482f0`**。
+- `regression.log`：132 PASS、0 FAIL、0 SKIP，10.788s，SHA-256 **`1ae0b52caa492aea18fda8659bbae5696f23229491fbb6d11da1e447b7f79812`**；包含 fake fault tests 和实际 CLI local dummy probes，不是 132 次真实生成。
+- `output/playwright/ridepass-round2-context.png`、`ridepass-round2-idea.png`、`ridepass-final-studio.png`、`ridepass-final-memory.png`；最终重载浏览器会话捕获的 console error/warn 均 0。root 查看了两张实际归档图片。
+
+非产品失败也保留：Playwright CLI 的前置 npx 请求受 sandbox 网络/缓存 EACCES 限制，改用现有 cua_repl/IAB 操作，未安装依赖；两次 UI locator 选择误匹配（同名表单与 details 的 DOM role），改用实际 dialog/text 范围后继续，未重复提交；只读 verifier 初次错误期待空 instruction 为 null，实际 UI 空字符串，修正 helper 的精确断言后通过，失败日志 `verification-first.log` 保留。没有因此改产品代码或重发模型。
+
+### 非阻断限制与停止决定
+
+| 限制 | 对 v0.1 是否阻断 | 依据 |
+|---|---|---|
+| 只有一个真实产品、两轮任务；root 是受托操作/检查者，缺真人品牌采用和配对视觉/时间基线 | 否 | v0.1 只证明跨次记忆影响。没有声称用户已接受作品、视觉优于旧流程或营销有效；完整 V1 质量门槛未关闭 |
+| 关键词检索；project feedback 未设 tags，适用于此项目所有未来任务，范围较宽 | 否 | UI 显式选择该范围，符合现有契约；不能据本例保证所有后续任务都选材正确。若判断只针对 rider 子场景，用户应使用更窄范围/可用主题控制 |
+| 图片生产只使用所选 concept/brief/品牌及显式图片；不直接自动召回 asset feedback 或全部历史图片 | 否 | 本例通过新 ideation 将反馈转为已保存方向再制作，完整链路成立；不能据此承诺仅点击另一图片 Generate 也会直接读取所有反馈 |
+| 未导入正式 logo/reference；第一张生成了未经验证的图形标识，两张有示意建筑/上车点标识；缺真实人物/路线证明 | 否 | 均为 draft creative illustration，无采用/发布；实际品牌标识和场景真实性须后续人工审查。本次不把图中文字当新产品事实，也不扩大为商业交付验收 |
+| native Skills best effort、有限工具执行面而非通用 OS sandbox；图片费用/额度 unknown；未做真实 provider 故障或断电 | 否 | ADR-017 接受的风险边界继续有效；无新增击穿硬边界证据。固定路线、预算、引用隔离、校验/恢复证据复用并通过当前回归 |
+
+最终：**六项 PASS，整体 PASS WITH NON-BLOCKING LIMITATIONS**。当前实现证明了一个真实项目中“知识和创作判断保存 → 相关选取 → 版本化 Skill/实际 runtime → 不可变归档 → 记忆积累 → 后续独立创作复用”的 v0.1 核心假设。无需实现修复、无需新增 ADR 或修改行为契约。本轮仅更新验收状态/导航，提交后检查工作树；展示本地图片后停止，不继续 V1。
+
+## 历史验收（2026-10-02）
+
 **结果：PASS — v0.1 Walking Skeleton 关闭。** 2026-10-02（Asia/Singapore），root 按实施前固定的六项标准完成中文浏览器真实两轮创作、进程重启、只读证据核对与边界/故障测试；独立 worker 复核通过。20 项工程测试通过、0 失败、0 跳过；实际订阅创作 2/2 成功。结论只覆盖合成项目的文字记忆闭环，不等于用户已采用作品或完整 V1 通过。记录完成后停止，不继续 V1。
 
 ## 范围与基线

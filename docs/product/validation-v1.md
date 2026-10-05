@@ -2,6 +2,8 @@
 
 **当前结论：FEASIBLE — 最小原生 Generate → 不可变 AssetVersion → 指令 Edit → 新 AssetVersion / Project Memory 已通过，停止供 dogfooding。** 完整 V1 尚未验收。产品负责人接受 native Skill 为 best effort；下方严格 Skill / 单次操作 / selected-reference-only 的 BLOCKED 记录仅为历史，不能作为当前 gate。
 
+2026-10-05 后继任务仅做 v0.1 最终验收，RidePass 实际项目 dogfood 结论 **PASS WITH NON-BLOCKING LIMITATIONS**：保存的图片判断经重启后独立构思复用，影响新文案/视觉方向/归档图片，新增 2 次文字与 2 次图片均成功，132 项回归通过，无产品代码修复。六项关闭标准、原生证据复用与剩余限制见 [v0.1 最终记录](validation-v0.1.md#ridepass-最终-dogfood2026-10-05)。该结果不关闭本页完整 V1 的质量/用户采用/发布门槛，本轮不继续 V1。
+
 ## 后继批准：Skill best effort，硬边界决定可行性（2026-10-05）
 
 PRD/ADR-017 先记录新批准，再调整实现/验证。本轮从干净 `90a10a9991b0537b0d533e8e916d83a45e3e3eaa` 开始，分支 `codex/production-loop-feasibility`。受测实现/测试/诊断提交为 **`734b4b2413da154aa1a0ce273f8d93037dcd36f7`**；后续文档提交只同步本结果，不改变受测代码。原有三项领域修正、profile 和兼容策略保留。没有推送、发布或加入凭证/真实图片/会话/私有报告；本地材料保留在被忽略的 `.workbench/`。
