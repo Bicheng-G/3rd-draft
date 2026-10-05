@@ -8,6 +8,8 @@
 
 ## 部署与技术基线
 
+2026-10-05 后继批准（ADR-016）修改图片门槛：Production Action 的总图片操作数最多 2，由 runtime 或 harness 在派发边界可靠执行；当前项目隔离/staged 文件区可读，正常宿主及其他项目不可读。ProductionSnapshot 保存所选参考，但不要求项目区内只能读这些参考。独立 profile 不能自行当作文件系统或全部原生 Skill 隔离的证明。上文 BLOCKED 是旧边界历史；新调查证明两次预算机制及独立 ChatGPT 登录，但 Windows 项目读取正例不可用，原生个人 Skill 仍能显式展开，契约 5 因此关闭模型任务。图片能力仍关闭，真实订阅推理与真实文件闭环 NOT_RUN，具体身份、认证 setup 限制和证据见 V1 验证记录。
+
 采用模块化本地应用：浏览器 UI + 常驻本地服务 + 外部 agent runtime。已落地 Node.js 22.15.0、内置 SQLite 3.49.1（experimental）、原生浏览器 ES modules，以及锁定的 sharp/fflate；前端无需构建。TypeScript、React/Vite 是原候选，不是安装前提。
 
 具体模块以 `src/` 与验证记录为准。暂不需要 SSR、Vercel、Neon、对象存储、Redis、向量数据库或分布式调度。依赖数量服从单机部署与可恢复工作流需要。

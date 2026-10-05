@@ -142,6 +142,8 @@ tool-free Codex 文本路线增加显式选定 PNG 视觉输入：应用复制�
 
 ## ADR-015 — 修正领域语义，以独立 profile 和有界行为探针接入 Codex
 
+后继说明：领域、profile 与兼容探针取舍保留。图片预算/文件范围和阻断解释由 ADR-016 的用户批准取代；本条的单次/所选输入约束是历史，不能重新作为当前 gate。
+
 **状态：2026-10-05 本轮用户授权的实现取舍；图片结论 BLOCKED。** 后继于 ADR-013/014 的运行时隔离和版本门禁实现，保留其历史运行证据，不改写为新配置已通过。当前范围停止外围 V1 扩展，先修已确认语义问题，再判断一条原生图片制作路线；用户明确接受有证据的 BLOCKED 退出。
 
 问题：旧 adapter 借用个人 Codex home，仅拒绝非空全局指令、逐个禁用个人 Skill，并以版本字符串等值替代兼容性；应用因此依赖用户个人环境。领域上，把 concept 决策放在项目层会污染其他 set，把输入视觉当 parent 会混淆引用与作品修订，手工编辑又会失去创建事实基线。
@@ -157,3 +159,17 @@ tool-free Codex 文本路线增加显式选定 PNG 视觉输入：应用复制�
 最小解阻要求：供应一个受支持、由宿主发起的原生单次图片操作，输入只接受宿主提供的参考字节/受限句柄，在派发前约束操作数，固定订阅认证并返回结构化图片标识/文件；或者在原生工具执行层提供同等的原子预算及 fail-closed 参考白名单。仅升级版本号、模型口头承诺或事后取消不足以解阻。采用何种 runtime/tooling 变更留待下一次产品/架构决定，本轮不自行实现新的代理服务或运行时 fork。
 
 代价：用户需要单独登录一次；每个新二进制/契约和新服务首次验证有本地探针开销，失败可能暂时关闭文字路线；旧无范围决策/未知手工上下文不被“自动修复”为虚构事实。旧 `0.159.0-alpha.12.1` 的实测保留，新的 `0.160.0` 本地证据不等于旧版本证据，也不等于真实订阅创作或完整 V1 验收。最低证据和全部失败/限制见 [V1 验证记录](../product/validation-v1.md)。
+
+## ADR-016 — 按两次操作与项目文件系统边界重新验证原生图片
+
+**状态：2026-10-05 产品负责人明确批准新边界；两次操作 harness 机制已验证，当前 Windows 文件系统与原生 Skill 隔离仍 BLOCKED。** 保留 ADR-015 的领域修正、应用专用 Codex profile、行为兼容探针及回归，不重新展开外围 V1。
+
+每个显式 Production Action 最多 2 次图片操作，Third Draft harness/runtime 可在派发边界可靠执行预算，不再要求 native 接口单独提供控制。当前项目隔离/staged 文件系统内的读取允许，正常宿主和其他项目禁止。ProductionSnapshot 记录用户显式参考选择，记录与文件可读范围不再等同。两次操作或工作子目录外、项目隔离区内的读取不是 blocker。
+
+最小实现判断先检查实际二进制与可用隔离机制。目录、HOME 或 read-only 标记本身不等于宿主文件不可读；计数日志、prompt 和事后取消也不等于第三次操作被阻止。允许采用简单 harness 强制边界，不预设必须 runtime fork、native 专用 RPC 或复杂 compatibility framework。Cumora/Curoma 类参考实现只提供机制线索，不以项目名称替代此 Windows 宿主的实测。
+
+独立 profile 完成自己的交互 ChatGPT 登录和真实订阅请求，不复制/修改个人 profile，不静默 API/BYOK 回退。新边界通过后只做 Generate→校验文件→不可变 AssetVersion→显式 instruction Edit→新 AssetVersion / Project Memory；原图不变。任何未证明的必要控制准确记录并停止，不复用已取代的严格条件判 BLOCKED。
+
+实装结果：十个 loopback 用例证明限额与持久 reservation/独占 owner 机制，尚未接入生产 SQLite。Windows elevated 文件系统 wrapper 要求 root read，unelevated 拒绝 split read policy，合法项目图也不能读取；没有据此宣称已泄露真实宿主文件。独立环境变量与 Skill catalogue 关闭仍不能阻止原生显式 Skill 从物理用户目录展开，故契约升级为 5，以可复现 canary 拒绝该行为，不回到逐个读取/禁用个人 Skill 或 exact-version 门禁。认证专用诊断已完成自己的 ChatGPT 登录，个人四个配置/指令/认证文件哈希不变；没有绕过兼容门禁执行真实推理或图片。浏览器启动产生的应用用户目录缓存还超出 profile 检查上限，作为独立 setup 限制保留。
+
+最小后续能力：受支持的 Windows 执行边界同时约束原生文件读取与 Skill 发现/展开，或证明等效的应用 harness/外部 executor；不要求某个特定 native RPC，也不默认允许 root read。只修正版本号、环境变量或隐藏 Skill 清单不足以解阻。当前停在产品/架构决定，不新增服务、安装隔离基础设施或启用生产调用。完整证据与前轮成功的适用范围见 [V1 验证记录](../product/validation-v1.md)。

@@ -1,8 +1,62 @@
 # V1 — 实现差距与验证记录
 
-**当前里程碑结果：BLOCKED — 领域与 runtime 隔离修正完成；原生图片制作不得启用。** 2026-10-05 用户将本轮范围收敛为先纠错、再做有界可行性调查，明确允许在控制无法证明时停止。完整 V1 仍未验收；10 月 2 日的工程、真实任务及性能证据保留在下方历史部分，不当作新 profile / 新二进制的验证。取舍见 [ADR-015](../architecture/decisions.md#adr-015--修正领域语义以独立-profile-和有界行为探针接入-codex)。
+**当前结果：BLOCKED，依据修订后仍未满足的隔离控制。** 每个 Action 最多 2 次的 harness 机制已证明；当前 native Windows 项目读隔离不可用，正常宿主还发现独立 profile 仍可触发个人原生 Skill。已完成领域、独立 profile、兼容探针及前轮 102 项回归工作保留，探针进一步补足此盲点；下方旧 BLOCKED 记录不作为当前结论。批准、证据边界和取舍见 PRD 与 ADR-016。
 
-## 当前提交、最低证据与结论（2026-10-05）
+## 后继批准：重新评估的最低证据（2026-10-05）
+
+本轮基线 `c95107512ce3c17afd64ac4d4a13645decbe9f36`，分支 `codex/production-loop-feasibility`，开工工作区干净。产品负责人明确允许每个用户发起 Production Action 最多 **2 次图片操作**，可由应用 harness/runtime 边界强制实施；允许读取当前项目隔离/staged 区全部文件，禁止正常宿主及其他项目，ProductionSnapshot 仍保留用户显式选定参考。独立应用 ChatGPT 登录与真实订阅路线须另外验证。旧的一次操作、selected-reference-only、native-only 控制要求已被取代，不再作为验收条件。
+
+新的最小检查：第三次操作（含并发/重试）不能到达真实派发边界，同一 action 的持久预算不能因重启/恢复绕过；项目区内正例可读，合成宿主/其他项目 canary 的绝对路径、越界路径和链接不能进入图片请求；应用 profile 独立交互登录及一项真实订阅任务成功，个人 profile 未被借用或修改。只在这些控制通过后执行一次真实生成及一次显式编辑，验文件解码/哈希、不可变前版本、新 lineage 和 Project Memory；仍失败则记录具体剩余 blocker。
+
+旧 `tools/probe-native-image.mjs` 把工作目录设置为 `<probe>/workspace`，未批准参考文件放在 `<probe>/other-project-unapproved.png`，而 CODEX_HOME/HOME 也是 `<probe>`。文件名含 other-project 不代表真的属于另一个项目；实际只是越出工作子目录、仍在同一 probe runtime 根。因此旧报告既不能证明逃出当前项目隔离区，也不能把两次图片操作当作新上限失败。原始报告不改写，本轮用明确分开的合成项目/宿主根重新取证。
+
+### 修订边界的实装调查结果
+
+本轮仍检查实际 `codex-cli 0.160.0`、SHA-256 `4b01d5920e6785614727443bbecf343f4dedbb7347052b72ba805aab6353ef01`；不更新历史 pin，不把当前结果转给 `0.159.0-alpha.12.1`。
+
+| 修订后的问题 | 运行证据 | 结论与限制 |
+|---|---|---|
+| 每个 Production Action 最多 2 次图片操作，harness 可执行 | `tools/probe-image-budget.mjs` 十个有界本地用例：无 gate 对照发出 3 次；顺序、同响应多调用、并发、503/断连重试、重复 owner、未知结果恢复、重定向及取消均在实际派发前处理 | **可行机制已证明**。限额 2；租约防同 Action 两个 owner；派发前同步刷写 reservation，失败不退还，未知结果重开后拒绝自动重放。尚未接入产品 SQLite/真实 upstream，不假称完整生产已实现 |
+| 当前项目 staging 可读，正常宿主/其他项目不可读 | `tools/probe-image-filesystem.mjs` 采用 Cumora 风格命名 profile（`:minimal` read + `:workspace_roots` 当前目录 write，network false），测试 staged 正例及独立兄弟项目/合成宿主负例 | **当前 native Windows 路线 BLOCKED**：elevated 要求 effective `:root` read；unelevated 明确不能实施 split filesystem read restrictions。两者连合法 staged 正例都无法读取，各 4 次本地 responses、0 图片请求。不能把所有读取失败算隔离 PASS，也没有证据声称这次发生真实宿主泄露 |
+| 应用 profile 独立交互 ChatGPT 登录及真实订阅 | 认证专用重试由用户完成交互，CLI 返回 Successfully logged in，独立 login status 确認 ChatGPT；个人两份 AGENTS、config.toml、auth.json 哈希不变。契约 5 检查仍拒绝原生个人 Skill 展开 | **独立认证 PASS；真实订阅推理 NOT_RUN**。没有复制个人凭证或绕过兼容门禁；登录后的浏览器缓存还触发 profile 检查上限，不能把登录成功当正常产品 setup 或订阅生成通过 |
+
+预算初次十用例诊断报告 `.workbench/image-budget-probe/result-2026-10-05T07-11-14-172Z-5f260b22-82d9-43d2-9689-2161b09cdf93.json`，SHA-256 `7106a5f3965bf70b3452a2de05915a74767b0a6d10022ea7baec20fec19a2baf`，契约 `f9db9d75595bdd9b994d076c99e82b11475193eadf57570f68d1008070725f87`。503 / reset 各 5 个 gate 请求只转发 2 个；并发 6 个请求只允许 2 个；duplicate-owner 在首个 reservation 前就拒绝第二 owner。恢复测试是关闭 gate 后从已 fsync 的 JSONL 重开，未杀死 Node 进程或测试断电。前两份预算报告保留较窄的单活跃 gate 证据范围，不冒称已覆盖双 owner。当前配置的复验见下节。
+
+文件系统报告：elevated `.workbench/native-image-filesystem/result-2026-10-05T07-05-08-414Z-e67dbb27-1135-4bdc-abf4-a28d4d5fc6ce.json`，SHA-256 `c1335e05cc32832a3b876c793b81a733b55a807dfbf19d2dea140bddbf860413`，配置 `60eef8ba86e7bc300091ca72df0c1d2e29556b633d2cc45a751a67908266febe`；unelevated `.workbench/native-image-filesystem/result-2026-10-05T07-06-09-737Z-724e3dc9-473b-4d3a-a3b7-800fff00fd9a.json`，SHA-256 `b2980c2fe1f2171b2dfbdb2ab4c730cafb702213ebaee58c8958b8fe68b5746f`，配置 `e2beaa6cb7101220b0abdb7a3fa0d66a706b96eb08bed478a0f40a99bde99f32`。报告中的 `INCONCLUSIVE` 指隔离未通过（正例也不可用），上表 BLOCKED 指该功能路线因此不能启用，并非相互矛盾。未加 root read、未关闭保护或静默使用更宽模式。
+
+参考项目的正确仓库名为 [yetone/cumora](https://github.com/yetone/cumora)，检查了其 [Windows BYOA 说明](https://github.com/yetone/cumora/blob/main/docs/BYOA.md)和[命名 filesystem profile 配置](https://github.com/yetone/cumora/blob/main/server/src/agents/computer/engine.ts#L1717)。公开 [Codex Windows permission 实现](https://github.com/openai/codex/blob/main/codex-rs/windows-sandbox-rs/src/resolved_permissions.rs)作为错误解释线索。以上 main 来源于 2026-10-05 读取，未证明与已装二进制同 revision；结论依据仍是上述实装错误。宿主只读库存显示 Docker CLI 27.1.1 已装但 daemon 无响应/服务停止，WSL 只有停止的 docker-desktop，WindowsSandbox.exe 不存在；未启动服务、安装软件或改 OS 安全配置，因此没有已就绪的替代隔离 runner 证据。
+
+最小剩余能力是 native image reader 能在 Windows 上执行“最低 runtime 文件 + 当前项目 staging”的读取限制，无需 effective root read；现有 imagegen 已通过 environment filesystem 读取参考，不必为了限额新增专用图片 API。若后续选择受支持的外部 executor，或由 harness 完整缓冲/校验 Responses 工具调用并规范化项目路径，均须单独验证。这些方案并未被证明不可能；当前未将新的协议解释器/执行服务包装成已经满足文件系统边界的实现。预算 gate 在图片请求发出时才看见字节，单靠它无法撤销此前已经发生的文件读取。
+
+诊断本身的审查修正也保留：预算补足同 Action 独占 owner；文件系统 PASS 必须实际含 staged 正例图的 canary 字节，任何请求出现外部 canary 均失败，边界破坏返回非零。后者观察 3 项 RED 后 4 项 GREEN，旧报告的全部 wrapper 失败结论不受修正影响。图片 adapter 当前不再报告已取代的一次操作 / 所选参考限制，而只报告项目文件系统路线不可用，仍在任何图片准备或派发前拒绝。
+
+### 原生 Skill 隔离与独立认证的补充证据
+
+前一轮契约 4 的成功发生在编码 sandbox 账户，不能覆盖正常 Windows 用户环境。正常宿主上的探针最初发现 9 个物理用户 `.agents/skills` 清单引用；增加 `skills.include_instructions=false`、`skills.bundled.enabled=false`、`cloud.skills.enabled=false` 后清单消失，但显式 `$better-writing` 仍触发个人 Skill 内容进入原生请求。这与应用控制的、按项目选择的 Skill package 不同。改变 HOME/USERPROFILE/CODEX_HOME 与 `skip_host_skill_discovery` 没有完成该隔离；没有清空个人 AGENTS、修改个人 Skill 或逐个依赖个人文件禁用配置。
+
+2026-10-05T07:24:32.967Z 正常宿主负例使用同一实际二进制、虚构认证与一个 `/v1/responses` loopback 请求，得到 catalogue 0、selectedSkill 1，路径为物理用户 `.agents/skills/better-writing/SKILL.md`；`unsupported_capability`、所有 acceptance checks false、无 evidenceId。私有摘要 `.workbench/host-profile-isolation/actual-host-explicit-skill-evidence-2026-10-05.json`，SHA-256 `4d88e5b99abbe74ffef42726b3c431e6c31dacb1c7f9fb39f0afe748673fff9c`，明确是先前 tool stdout 的脱敏摘录，不是持久原始 native log；没有保存 Skill 正文或真实 token。契约升级为 **5**，哈希 `e9eb56dfdbada3fb60579756c67fc1f735e4bcc2eb1a9793f9a7aedff3641a18`，增加工作目录合成 Skill 及显式引用 canary，当前实装回归同样拒绝展开，旧成功缓存不能复用。探针全过才启用的策略保持；未恢复 exact-version equality。
+
+认证先后保留三种不同结果：第一次浏览器未自动打开，显式打开后用户完成回调，但 token exchange 失败；公共 auth metadata 的有界诊断在编码 sandbox 返回 EACCES、正常宿主返回 200。正常宿主的常规 login helper 随后被上面的 Skill 兼容检查拒绝，尚未进入登录。最后仅对认证使用 app-owned profile 的原生 `login`，在正常宿主由用户完成新交互，退出 0；没有 model prompt 或推理门禁绕过。
+
+2026-10-05T07:29:41.319Z 用该 profile 的原生 `login status` 确认 ChatGPT，四个个人文件哈希与本轮基线一致。证据 `.workbench/revised-boundary-evidence/auth-completed.json`，SHA-256 `3d62224f603aea8fb552b279c7b981cec7c7cfeafccbc951bb6b365df8b39eab`。应用凭证保留在 Git 忽略的 `.workbench/native-production-acceptance/runtime/codex`，没有加入仓库。**本轮真实 inference/image calls 均为 0**；认证请求不是模型请求，也不证明实际订阅生成或账单路线已验收。
+
+另外，登录/浏览器启动后应用隔离用户目录出现 5,230 项，其中 5,195 项位于 `home/AppData/Local/Microsoft` 浏览器缓存目录，触发 `prepareProfile` 5,000 项检查上限。因此正常 post-login profile inspection 失败；独立认证状态核验仅验证了原生 home/auth 文件为真实常规文件后运行原生 status，不能代替完整 profile 通过。未提高上限、删除缓存、移除链接或以绕过检查作为产品修复。若选择继续当前登录方式，需要另行解决浏览器状态与受检运行目录的边界。
+
+### 最终配置复验与提交状态
+
+实现、诊断与测试提交 **`293bd282351a83bd2b86146931c673c23ac40a7b`**，分支 `codex/production-loop-feasibility`；随后仅提交本轮 canonical 文档，未改变受测代码。既有领域修正保留。原始诊断、凭证、用户数据与登录 profile 均在 Git 忽略的私有目录；未发布或推送。
+
+预算在最终配置复验的十个用例均通过，契约 `8ff36c97189e111ccc5b4451460e09e737ba25678f1a856daaf85926b3bf7aca`。最终报告 `.workbench/image-budget-probe/result-2026-10-05T07-39-34-108Z-c8a46281-4afb-485b-95e7-15e128c75441.json`，SHA-256 `ed50715d3d7f7d44a9391a5b055acda8d88e6e7d9326f59e69d6f7a98d576dac`，7.2 秒自然退出，无真实 provider 请求。较早的同配置报告 `.workbench/image-budget-probe/result-2026-10-05T07-36-02-777Z-eba7d3cf-6c3f-4346-91f7-a7acc279413e.json`（SHA-256 `7401ae2ddd608e23338285bcba9b9e895190f145d83e56ae334dc881d6d19e99`）也完成十项，但 tool command session 未返回 completion；只读进程检查未找到对应 node/probe wrapper，不能据此认定是脚本泄漏或证明正常退出。独立重复运行自然退出，未用 process.exit 隐藏 handle 问题。
+
+Skill 配置改变后重新运行有界文件系统诊断，避免把旧配置当当前证据。最终 elevated 报告 `.workbench/native-image-filesystem/result-2026-10-05T07-36-02-933Z-cd2776bb-5ea1-4cfa-b4bc-32bd88535b67.json`，SHA-256 `93b062f91ea01862037a89fcfbd2ed23c4018dbf2a7ffb0df670a86bcdb85380`，配置 `1166067b3d4060a46e6084b132062d716f19d7d58bf293e44382cac8290cbdaf`；unelevated 报告 `.workbench/native-image-filesystem/result-2026-10-05T07-36-03-303Z-37b4d09a-ee5a-4f0a-8ba9-b03a0877c66e.json`，SHA-256 `f33daad5c59d15882bd1f89b2d08b12b92535eb921d0fc8d18b7dcaf73b4c322`，配置 `e59d255dc386ef9a19d5c4830f11b79cc1ed04b53927e57b026be68d06d03b30`。两模式重现相同 wrapper 限制，各 4 个本地 responses、0 image，诊断退出 2 / INCONCLUSIVE；不是隔离通过。
+
+完整 `npm test` **107/107 PASS，0 fail / 0 skip**，15.382 秒，日志 `.workbench/revised-boundary-evidence/regression.log`，SHA-256 `41440221d59601b83f95e6e06b1d1bf096af8d9ac0ef711466727e70a815b1f4`。实装测试明确输出 BLOCKED / fail-closed regression evidence，故回归通过不能解释为 runtime acceptance。新增文件系统判定与显式 Skill 泄露回归保留，领域、项目隔离、恢复、备份及图片提交前拒绝仍通过。两个新诊断脚本语法检查和 `git diff --check` 通过；独立复核未发现关键代码问题。
+
+本轮停止在修订后隔离边界，未实现或伪装 Generate/Edit、归档、lineage/Memory 的真实图片闭环。最小继续条件是可验证的项目文件读取边界和完整 native Skill 隔离，以及可完成产品 setup 的独立认证目录；由后续产品/架构选择运行时支持或等效 harness/executor，不假定所有方案不可能。
+
+## 前一轮：严格边界下的提交、最低证据与结论（2026-10-05 历史）
+
+下表的 profile / 契约 4 局部 PASS 已被上方正常宿主 Skill 负例限缩；只保留当时观察，不作为当前支持声明。旧图片条件亦已由 ADR-016 取代。
 
 开工基线为 `main` / `6ecc44a5707aca6a6997fd2d230ef27c4eb027d8`，工作区原先干净。实现与测试提交为 `51f4feb0c4659dbdc259cc2fb627a48be40ae20d`；本页随后以文档提交补记该 revision 的验证结果，不改变受测代码。没有发布或推送，没有把凭证、真实资产、runtime 会话或私有报告加入 Git。下方曾记载的 unborn `main` 仅描述 10 月 2 日当时状态。
 

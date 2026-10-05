@@ -5,7 +5,7 @@
 ## 项目事实与环境前提
 
 - 3rd Draft 仓库承载面向个人创作者的多项目长期创意工作空间；产品正式命名仍见 [路线图 O-01](product/roadmap.md)。v0.1 是 Windows 本地单人、浏览器界面，项目拥有知识和资产。
-- v0.1 文字闭环已通过；当前按用户后续授权实施 V1，英文 UI、批量创意、set/brief、来源/洞察、图片导入/本地模板、Review、Skill 与备份模块已进入集成。完整 V1 未验收，原生生图/编辑控制门槛仍 BLOCKED。历史与当前证据分别见 [v0.1](product/validation-v0.1.md)、[V1](product/validation-v1.md)。没有 CI/公开发布配置。
+- v0.1 文字闭环已通过；当前按用户后续授权实施 V1，英文 UI、批量创意、set/brief、来源/洞察、图片导入/本地模板、Review、Skill 与备份模块已进入集成。完整 V1 未验收；原生生图/编辑按后继批准的每动作最多 2 次及项目文件系统隔离边界重新评估，验证前保持关闭。历史与当前证据分别见 [v0.1](product/validation-v0.1.md)、[V1](product/validation-v1.md)。没有 CI/公开发布配置。
 - 已选 Node.js 22.15.0 + 内置 SQLite 3.49.1（experimental）及零依赖浏览器 ES modules，见 ADR-013。React/Vite/TypeScript 仍为原候选，不是安装前提。
 - 产品决定由用户作出；实现由当次受托维护者负责。发布负责人、集成/发布目标及适用授权在相关操作前核实，不能从分支名或历史任务记录推定。
 - 开发宿主的工具和并发能力不等于产品 runtime 的能力。使用时检查实际可用工具和限制，不固定模型/profile，不改变用户 root model 或个人 trust 设置。
@@ -26,7 +26,7 @@ rg -n '需要查找的标识或术语' docs
 
 首次 `npm ci` 安装锁定 sharp/fflate，前端无需 build。`npm start` 启动 loopback 服务，`npm test` 运行 Node 测试，`npm run validate:live` 只读检查历史 v0.1 合成项目，不是当前里程碑验收。默认数据根为 `%LOCALAPPDATA%\ThirdDraft`；测试用 `.workbench/`，真实资产不放仓库。`THIRD_DRAFT_DATA_DIR` / `THIRD_DRAFT_PORT` 配置目录/端口；`THIRD_DRAFT_CODEX_PATH` 指定 CLI。2026-10-05 起不再只按 exact version equality 判兼容：每个新二进制/契约组合执行有界本地探针，失败关闭。旧 `0.159.0-alpha.12.1` 证据保留，不能用本机 `0.160.0` 冒充。运行时使用数据根 `runtime/codex` 及隔离用户目录；`npm run runtime:check` 只做 dummy loopback 检查，`npm run runtime:login` 显式在该 profile 进行独立 ChatGPT 登录。个人 Codex 登录不自动沿用，个人全局指令无需清空。模板读取 Windows 已安装 Arial/Georgia，缺失即失败。详见根 [README](../README.md)。
 
-测试使用 fake runtime 的故障用例不证明真实模型成功；实际 CLI 的 loopback dummy transport 测试不调用真实模型，CLI 缺失时单独 SKIP，未知版本执行探针而非直接跳过。跳过不能当隔离验证；应用探针失败则拒绝启动模型任务。`node tools/probe-native-image.mjs` 复现图片边界负例，不验证真实图片服务、订阅计费或质量。历史真实调用与本轮证据分开，未执行部分保留 NOT_RUN。
+测试使用 fake runtime 的故障用例不证明真实模型成功；实际 CLI 的 loopback dummy transport 测试不调用真实模型，CLI 缺失时单独 SKIP，未知版本执行探针而非直接跳过。跳过不能当隔离验证；应用探针失败则拒绝启动模型任务。当前 `0.160.0` 会显式展开物理用户目录的原生 Skill，契约 5 探针因此关闭模型和正常登录 helper；107 项回归通过包含验证这种拒绝，不表示 runtime 兼容。认证专用诊断已完成独立登录，但没有绕过门禁执行推理；登录后的浏览器缓存还触发 profile 5000 项检查上限。`node tools/probe-image-budget.mjs` 与 `node tools/probe-image-filesystem.mjs`（另测 `--unelevated`）复现当前机制调查；`tools/probe-native-image.mjs` 保留旧边界负例。这些均不验证真实图片服务、订阅计费或质量；历史真实调用与本轮证据分开，未执行部分保留 NOT_RUN。
 
 ## 操作边界
 

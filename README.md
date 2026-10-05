@@ -2,7 +2,7 @@
 
 A local creative workspace for project knowledge, sources, insights, ideas, reusable creative sets, images, and feedback. The product interface is English; each task chooses its own output language.
 
-**V1 is in development, not accepted.** The earlier [v0.1 memory loop passed](docs/product/validation-v0.1.md). Current implementation and remaining gates are recorded in [V1 validation](docs/product/validation-v1.md). Native image generation and instruction-based image editing remain unavailable: the installed runtime has not passed the required call-budget and reference-isolation controls. Imported images and local composition are labelled separately.
+**V1 is in development, not accepted.** The earlier [v0.1 memory loop passed](docs/product/validation-v0.1.md). Current implementation and remaining gates are recorded in [V1 validation](docs/product/validation-v1.md). Native image generation and instruction-based image editing remain disabled: the harness demonstrated a limit of two image operations per explicit Production Action, but current-project filesystem isolation and native Skill isolation remain blocked on the tested Windows runtime. Imported images and local composition are labelled separately.
 
 ## Run locally on Windows
 
@@ -17,7 +17,7 @@ npm start
 
 Open `http://127.0.0.1:4057`. Data defaults to `%LOCALAPPDATA%\ThirdDraft`; `THIRD_DRAFT_DATA_DIR` and `THIRD_DRAFT_PORT` select another directory or port. One service owns a data directory. Stop the service and copy that directory before upgrading. Startup takes its lock before migration; newer database versions are rejected.
 
-Third Draft uses its own profile at `<data directory>\runtime\codex` and separate runtime user/temporary directories. Your normal Codex configuration, credentials, `AGENTS.md`, `AGENTS.override.md`, rules, skills, and sessions stay outside this profile. Do not change them to make Third Draft work. Sign in separately from the installation folder, using the same `THIRD_DRAFT_DATA_DIR` setting as the service:
+Third Draft uses its own profile at `<data directory>\runtime\codex` and separate runtime user/temporary directories. It does not copy your normal Codex configuration, credentials, instructions, rules, skills, or sessions. Do not change them to make Third Draft work. The tested `0.160.0` can still expand native Skills from the physical Windows user directory; the strengthened compatibility probe detects this and blocks model tasks and the normal login helper. Once compatibility passes, sign in separately from the installation folder, using the same `THIRD_DRAFT_DATA_DIR` setting as the service:
 
 ```powershell
 npm run runtime:check # Local dummy transport only; no model or sign-in request
@@ -26,7 +26,7 @@ npm run runtime:login # Explicit ChatGPT sign-in to the Third Draft profile
 
 Refresh the connection after signing in. The login helper gives only its child process the isolated environment; it does not alter your shell's Codex environment. Credentials are stored by Codex in the application profile and excluded from project backups. API authentication is rejected; there is no automatic billing-route fallback.
 
-A new executable hash or contract configuration requires fresh bounded probes before model use. Passing evidence is reused in the service process; failed or unavailable checks block execution. Restart Third Draft after a Codex upgrade so its executable is resolved again. Text/vision compatibility and native image production are separate. On the inspected `0.160.0` binary, image controls failed a local adversarial probe, so generation/editing remain disabled. Local dummy responses do not establish real subscription output quality.
+A new executable hash or contract configuration requires fresh bounded probes before model use. Passing evidence is reused in the service process; failed or unavailable checks block execution. Restart Third Draft after a Codex upgrade so its executable is resolved again. Text/vision compatibility and native image production are separate. The earlier `0.160.0` image probe used superseded one-operation and selected-reference-only criteria. It does not decide the revised boundary; the revised investigation demonstrated the two-operation harness gate but found the current Windows project-filesystem route unavailable. Generation/editing remain disabled. Local dummy responses do not establish real subscription output quality.
 
 ## Use the workspace
 
@@ -65,6 +65,6 @@ npm run validate:live
 
 Fake runtimes test deterministic boundaries, not model quality. Installed-CLI loopback tests use dummy responses and no provider calls. Real subscription and browser evidence is recorded separately. Full paired visual-quality evaluation and the native image-production gate have not passed.
 
-Current milestone: domain corrections and isolated runtime compatibility, with native image production **BLOCKED**. Exact regression counts, binary/configuration identities and limits are in [V1 validation](docs/product/validation-v1.md). The five real subscription tasks and 1,000-image browser benchmark from October 2 remain historical evidence, not tests of the new isolated login. Reproduce the image boundary diagnostic with `node tools/probe-native-image.mjs`: it uses fabricated credentials and loopback image responses, never accepts native production, and retains its report under `.workbench/native-image-probe/`.
+Current milestone concluded **BLOCKED** at the revised isolation boundary. Domain corrections and compatibility safeguards are preserved; the two-operation budget is no longer a blocker. An authentication-only diagnostic completed the application profile's own ChatGPT sign-in and verified the personal instruction, configuration, and credential files were unchanged. Real subscription inference and Generate/Edit remain untested because the isolation gate is closed. Login also populated the isolated user directory with browser cache beyond the profile inspection limit; normal post-login setup did not pass. Exact regression counts, identities, and remaining work are in [V1 validation](docs/product/validation-v1.md). October 2 subscription tasks and browser benchmarks remain historical evidence. The current loopback diagnostics are `node tools/probe-image-budget.mjs` and `node tools/probe-image-filesystem.mjs` (also `--unelevated`); they use fabricated credentials and cannot establish production acceptance. `tools/probe-native-image.mjs` retains the superseded boundary experiment.
 
 Start with [AGENTS.md](AGENTS.md), the [documentation index](docs/README.md), and the [project guide](docs/PROJECT_GUIDE.md). The canonical PRD retains its existing filename and requirement IDs. Cloud hosting, automatic publishing, team accounts, and billing integration are out of scope. Public release and repository license selection remain pending; installed dependency metadata is in [third-party notices](THIRD_PARTY.md).
