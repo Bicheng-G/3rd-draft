@@ -162,6 +162,8 @@ tool-free Codex 文本路线增加显式选定 PNG 视觉输入：应用复制�
 
 ## ADR-016 — 按两次操作与项目文件系统边界重新验证原生图片
 
+后继说明：ADR-017 将原生 Skill 隔离调整为 best effort；下文 Skill 泄露导致模型关闭是当时实现/验证结果，不再是当前验收要求。两次操作与项目文件系统边界保留。
+
 **状态：2026-10-05 产品负责人明确批准新边界；两次操作 harness 机制已验证，当前 Windows 文件系统与原生 Skill 隔离仍 BLOCKED。** 保留 ADR-015 的领域修正、应用专用 Codex profile、行为兼容探针及回归，不重新展开外围 V1。
 
 每个显式 Production Action 最多 2 次图片操作，Third Draft harness/runtime 可在派发边界可靠执行预算，不再要求 native 接口单独提供控制。当前项目隔离/staged 文件系统内的读取允许，正常宿主和其他项目禁止。ProductionSnapshot 记录用户显式参考选择，记录与文件可读范围不再等同。两次操作或工作子目录外、项目隔离区内的读取不是 blocker。
@@ -173,3 +175,21 @@ tool-free Codex 文本路线增加显式选定 PNG 视觉输入：应用复制�
 实装结果：十个 loopback 用例证明限额与持久 reservation/独占 owner 机制，尚未接入生产 SQLite。Windows elevated 文件系统 wrapper 要求 root read，unelevated 拒绝 split read policy，合法项目图也不能读取；没有据此宣称已泄露真实宿主文件。独立环境变量与 Skill catalogue 关闭仍不能阻止原生显式 Skill 从物理用户目录展开，故契约升级为 5，以可复现 canary 拒绝该行为，不回到逐个读取/禁用个人 Skill 或 exact-version 门禁。认证专用诊断已完成自己的 ChatGPT 登录，个人四个配置/指令/认证文件哈希不变；没有绕过兼容门禁执行真实推理或图片。浏览器启动产生的应用用户目录缓存还超出 profile 检查上限，作为独立 setup 限制保留。
 
 最小后续能力：受支持的 Windows 执行边界同时约束原生文件读取与 Skill 发现/展开，或证明等效的应用 harness/外部 executor；不要求某个特定 native RPC，也不默认允许 root read。只修正版本号、环境变量或隐藏 Skill 清单不足以解阻。当前停在产品/架构决定，不新增服务、安装隔离基础设施或启用生产调用。完整证据与前轮成功的适用范围见 [V1 验证记录](../product/validation-v1.md)。
+
+## ADR-017 — 以权限边界约束原生执行，Skill 隔离为 best effort
+
+**状态：2026-10-05 产品负责人明确批准；最小原生 Generate/Edit 路线 FEASIBLE，停止供 dogfooding。** 个人/native Skill 的发现或加载本身不得阻断模型或图片执行。接受并尽可能记录原生指令污染，保留简单可靠的抑制机制；不建立通用 Skill 安全框架，不把假想的 Skill 行为等同任意宿主文件暴露。
+
+硬边界继续是当前项目隔离/staged 文件区、正常宿主及其他项目不可自由读取、显式应用 ChatGPT 订阅路线无静默 fallback、每个显式 Production Action 最多 2 次图片操作以及应用持有业务批准/采用/发布/新增 Action 的权力。ProductionSnapshot 仍记录显式参考，真实文件由应用验证归档。模型指令或 Skill 无权扩大这些许可。
+
+本轮只调查是否存在足够简单、可验证的 runtime/harness 权限约束。前提未变的预算证据复用；Skill 检查降为观察后必须保留工具、认证、重试、结构化结果及业务权限检查。只有具体 Skill 行为已突破硬边界而无法约束才阻断。满足硬边界则只做 Generate→归档→一次显式 Edit→新 AssetVersion/Project Memory；否则保留完成工作并记录具体硬 P0 风险及最小解阻变更后停止。
+
+实现选择是一个很窄的**应用编排原生工具**路线：ProductionSnapshot 已有概念、brief、事实、指令和参考字节，无需让外部模型再决定调用什么工具。单次临时 CLI session 只暴露 `image_gen.imagegen`；loopback `/responses` 完全由应用产生固定的一次工具调用及结束响应，绝不转发外部模型 Responses/SSE。调用 ID、当前项目 staging 路径和参数均由宿主构造；不接受用户路径、历史线程或 `num_last_images`。因此原生 Skill 或图片服务没有选择宿主路径、其他工具或另一个 Action 的接口。保留 profile/祖先目录/输出文件的 junction、symlink、hardlink 检查，原生实际写入文件还须与图片响应字节一致。
+
+这不是 Windows 任意进程的 OS 读取沙箱，也未声称旧 filesystem wrapper 已修好。边界依赖可信的原生二进制、限定的工具注册、应用唯一生成执行指令和当前项目字节 staging；不支持自由模型工具循环、shell、MCP 或浏览器。个人 Skill 加载可观察且已接受，但其内容不能产生工具指令。正常宿主/其他项目路径负例、固定参数以及真实二进制文件正例共同验证这个有限执行面；若以后开放任意外部 Responses，必须重新决定并验证隔离，不能继承本证据。
+
+原生 CLI 使用应用 profile 的 ChatGPT 认证构造图片请求；harness 只向固定 `https://chatgpt.com/backend-api/codex/images/generations` 或 `/images/edits` 转发，拒绝重定向，无 API key、备用 provider 或自动重发。每次转发前同步保存 SQLite reservation，上限 2；未知结果不退款、不恢复派发。Action staging 独占创建，同一 requestId 重复请求返回原 run，新 Action 必须来自 UI/HTTP 的显式用户请求。图片 endpoint 的 edit 与领域 edit 不等同：新生成带参考图也走 `/images/edits`，只有用户选择已有版本修改才建立 parent。
+
+应用验证响应 PNG、原生保存文件及哈希，然后规范化 PNG、持久化待归档载荷，以既有事务写 AssetVersion、参考依赖及完成 run；重启只恢复本地归档。原图不变，新生成没有 parent，编辑指向原版，额外参考进入 `asset_links`。采用、Review 解除和发布仍需各自业务动作。
+
+兼容契约 6 把 Skill 变成不含正文/路径的 best-effort 观察，仍拒绝全局配置/指令混入、任意工具、API 登录和重试。profile 检查继续遍历完整 CODEX_HOME 与 native 配置子树，浏览器缓存不再作为 native 配置递归检查；目录本身及祖先仍拒绝链接。图片另有二进制/契约哈希缓存的同一 dispatcher dummy Generate/Edit 探针。实测 `0.160.0` 完成一次真实生成及一次显式编辑，各 1 次图片请求；旧 pin 未重测。代价是 CLI 内部图片协议可变、需要单独登录、用量仍 unknown；这不是通用 adapter 框架。详细文件、计费路线证据和限制见 [V1 验证](../product/validation-v1.md)。

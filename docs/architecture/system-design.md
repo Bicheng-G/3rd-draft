@@ -1,14 +1,16 @@
 # 系统架构
 
-状态：2026-10-02。v0.1 文字 Walking Skeleton 已通过；用户随后授权实现 V1。历史取舍见 [ADR-013](decisions.md#adr-013--walking-skeleton-以跨次文本创作证明项目记忆闭环)，当前扩展见 [ADR-014](decisions.md#adr-014--v1-沿用本地领域模型扩展版本化创作与受限视觉输入) 和 [V1 验证记录](../product/validation-v1.md)。下文完整工作流/图像/租约体系仍是设计契约，不能全部视为已实现能力。
+状态：2026-10-05。最小原生 Generate/Edit 闭环已通过，完整 V1 仍未验收。当前取舍见 [ADR-017](decisions.md#adr-017--以权限边界约束原生执行skill-隔离为-best-effort)，实装证据见 [V1 验证](../product/validation-v1.md)。下文完整工作流仍是设计契约，不全部视为已实现能力。
 
-当前实现：Node 内置 SQLite 保存项目、不可变知识/创意/证据/洞察、set/brief、图片版本、范围反馈、独立收藏/采用/发布记录、Skill 绑定及运行快照；文件保存可校验的 Markdown、PNG 和方法包。浏览器使用同源会话和 CSRF，服务只监听 loopback。每次最多一项模型运行，支持暂停与尽力取消；先持久化运行，再调无工具的新原生文本/视觉 session；校验结构和引用后保存恢复载荷，写文件、验证哈希、事务关联，最后标成功。重启将仍在执行的请求标为结果未知，将已有结构化结果的 `archiving` 任务仅重试本地归档。sharp 提供本地解码/模板，显式公共 URL 读取保存来源；fflate 提供成品和私有备份，恢复到新目录。没有自动模型重试、原生图片生成/编辑、通用队列或租约系统。原生图片能力在调用预算和参考路径边界通过前关闭。
+Node 内置 SQLite 保存项目、不可变知识/创意/证据/洞察、set/brief、图片版本、范围反馈、独立收藏/采用/发布、Skill 绑定及运行快照；文件保存可校验 Markdown/PNG。浏览器同源会话及 CSRF，服务只监听 loopback。现有 CreativeService 全局一次一项任务，负责文字与图片、暂停、尽力取消、持久预算和恢复，没有另建队列/编排平台。先持久化 run；已验证输出进入 archiving 后只恢复本地文件及事务，不重发 provider；仍 running 的重启任务标 result_unknown。
 
-2026-10-05：运行时从用户全局 Codex home 脱离。数据根的 `runtime/` 保存应用专用 Codex profile、用户目录和临时文件；只读入服务明确选择的内容，不接触个人规则、Skill、登录或其他会话。兼容性以二进制哈希和工具/传输契约的有界本地探针为准，独立 ChatGPT 认证仍必要；图片能力不因文字探针通过而解锁。领域 schema v3 明确 set 选择、作品前版本/输入依赖和手工创意上下文。详见 ADR-015；本轮停止于图片路线 BLOCKED 的决策边界。
+schema v3 保留 set 内决定、AssetVersion parent 与输入依赖的区分、手工创意 provenance/creationContext。图片新生成没有 parent，指令编辑指向原版，额外参考保存 asset_links；规范化归档保留 inputHash 和 artifactHash，原文件版本不改。ProductionSnapshot 保存所选概念、当时 brief/品牌、用户参考、编辑原版及指令。模型不能采用、发布或授权另一 Action。
 
 ## 部署与技术基线
 
-2026-10-05 后继批准（ADR-016）修改图片门槛：Production Action 的总图片操作数最多 2，由 runtime 或 harness 在派发边界可靠执行；当前项目隔离/staged 文件区可读，正常宿主及其他项目不可读。ProductionSnapshot 保存所选参考，但不要求项目区内只能读这些参考。独立 profile 不能自行当作文件系统或全部原生 Skill 隔离的证明。上文 BLOCKED 是旧边界历史；新调查证明两次预算机制及独立 ChatGPT 登录，但 Windows 项目读取正例不可用，原生个人 Skill 仍能显式展开，契约 5 因此关闭模型任务。图片能力仍关闭，真实订阅推理与真实文件闭环 NOT_RUN，具体身份、认证 setup 限制和证据见 V1 验证记录。
+数据根 runtime/ 保存应用自己的 Codex profile、用户目录和 temp；独立 ChatGPT 登录，不借用或修改正常个人 profile，不要求全局指令为空。native Skill 可能仍被加载，best effort 抑制/观察；兼容契约 6 不再为此拒绝，但配置、任意工具、API 认证和重试等硬检查保留。浏览器缓存不作为 native 配置递归检查，原生 home/配置子树和祖先链接防护继续生效。按二进制哈希和契约探针接纳升级，不以版本相等为唯一条件。
+
+图片使用 src/native-image-dispatch.mjs 的固定工具执行面：应用本地产生唯一 imagegen 调用及结束响应，不向 CLI 转发外部模型 Responses。参数是应用确定的 prompt/当前项目 staging PNG 路径，其他工具关闭，没有自由模型工具循环。原生 ChatGPT 图片请求经过固定 HTTPS subscription gate，SQLite 派发前 reservation 最多 2，禁止重定向/自动重放；返回 PNG 与原生实际保存文件一致才归档。路径/工具不可由外部输入指定是此路线的文件隔离机制；未声称提供通用 Windows OS 进程沙箱，也没有把旧 wrapper 失败改写为成功。正常宿主及跨项目路径拒绝、实际 native 文件和 subscription 闭环证据见验证记录。
 
 采用模块化本地应用：浏览器 UI + 常驻本地服务 + 外部 agent runtime。已落地 Node.js 22.15.0、内置 SQLite 3.49.1（experimental）、原生浏览器 ES modules，以及锁定的 sharp/fflate；前端无需构建。TypeScript、React/Vite 是原候选，不是安装前提。
 

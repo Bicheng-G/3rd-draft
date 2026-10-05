@@ -1,19 +1,23 @@
 # Provider、认证路线与 Adapter 契约
 
-状态：待 M0 验证的设计 · 2026-10-02。外部事实详见 [C-01～C-15](../research/claim-review-2026-10-02.md)。
+状态：2026-10-05；最小原生图片路线 FEASIBLE，完整 V1 仍未验收。历史外部能力资料见 [C-01～C-15](../research/claim-review-2026-10-02.md)，当前二进制、真实调用及限制见 [V1 验证](../product/validation-v1.md)。
 
-实施注记（2026-10-05）：`src/runtime.mjs` 的无工具 ChatGPT 文本/显式 PNG 路线改用数据目录下独立 profile、用户目录与认证存储，不继承个人 Codex 配置/规则/skills/凭证。历史 `0.159.0-alpha.12.1` 是旧证据身份，不再是唯一兼容判断。每个新二进制 SHA-256/运行契约组合先执行有界 loopback dummy 探针，成功记录在当前服务内复用，失败在外部任务前拒绝；升级不能继承旧成功。探针不调用真实模型，不能代替登录或真实内容质量验证。一次实际文本/视觉任务最多 180 秒，用量缺失仍 unknown。图片能力单独验证；`0.160.0` 的本地原生工具负例证明同 turn 多次图片调用及越出选择范围的参考图读取，故生成/编辑继续 BLOCKED。详情见 [V1](../product/validation-v1.md) 与 ADR-015。
+应用独立 profile 不复制或修改个人 Codex 配置、规则、认证、Skill 和会话；个人全局 AGENTS 无需清空。native Skill 可能仍被原生发现/加载，按 ADR-017 为 best effort 观察，不单独阻断。契约 6 保留简单抑制、工具/认证/重试/输出硬检查；新二进制 SHA-256/契约组合通过有界 loopback dummy 探针才启用，文字通过不自动启用图片。旧 `0.159.0-alpha.12.1` 没有重新验证，不能套用 `0.160.0` 的结果。
 
-## 接入路线不能合并
+## 当前原生图片路线
 
-**当前图片授权边界（2026-10-05 后继批准，见 ADR-016）：** 每个显式 Production Action 最多 2 次图片操作；允许宿主 harness 在实际派发边界计数和拒绝第三次，不要求 native 独占实现。项目内可读范围是当前项目隔离/staged 文件系统，正常宿主和其他项目必须不可读；快照中的显式参考记录仍保留语义，不等于文件系统白名单。上一实施注记中的两项旧负例不足以直接判定新边界失败；重新评估证明预算机制，但当前 Windows 项目文件读取与原生 Skill 隔离仍未通过，能力保持关闭。应用专有 profile 的交互 ChatGPT 登录和真实订阅调用也是独立验收项，不沿用个人凭证。不得静默切换 API/BYOK、重启后重置同一动作预算、根据模型自报判成功或以事后取消冒充可靠限额。
+每个显式 Production Action 最多 2 次图片操作。应用先冻结当前项目的 ConceptVersion、brief、品牌版本、指令、明确参考和可选编辑原版，再构造原生唯一的 `image_gen.imagegen` 调用。loopback `/responses` 只有应用固定响应；外部模型、Skill 和图片 provider 均不能选择工具、路径或新增 Action。当前实现仅接受应用验证过的 PNG buffer，写入当前项目 Action staging。不是任意 Codex agent 的 Windows OS 沙箱，也不要求 selected-reference-only ACL。
 
-| 路线 | 用途 | 当前证据 | v0.1 决定 |
-|---|---|---|---|
-| Codex 原生登录/runtime | 文本/视觉创意任务；图片工作仍受独立能力门槛约束 | 应用独立登录已完成；契约 5 拒绝实装 0.160.0 的原生 Skill 泄露，图片项目文件系统正例也不可用 | 当前模型任务关闭；图片 M0 仍须端到端验证后才启用 |
-| SIWC plan usage → Responses | 应用使用用户授权的订阅推理 | 有资格/授权和 preview 工具限制 | 备选，第一版不同时实现另一套 OAuth |
-| OpenAI/Gemini/Ideogram/fal API | 特定模型/图像能力补充 | 各自 API；不属于当然可用的订阅池 | 可选 BYOK 扩展，不作为静默降级 |
-| 人工导出 brief → 导入图片 | 能力不可用时保留创作进度 | 不依赖集成 | 可作为显式临时桥接；不算自动制作验收通过 |
+原生 CLI 使用应用自有 ChatGPT 登录构造请求；harness 在同步 SQLite reservation 后，只向固定 Codex subscription `/images/generations` 或 `/images/edits` 转发。没有 API key、alternate provider、重定向或自动重发；同 Action 不能重新取得预算，结果未知不自动派发。原生保存文件必须与已完整解码的 backend 图像字节一致，再由应用去元数据归档 PNG、记录原始/归档哈希、lineage、依赖与 Project Memory；模型文字不作为图片成功证据。一次生成带参考图也可能调用 edits endpoint，不因此成为领域修订。
+
+实际 `0.160.0` 已在独立交互登录的 profile 通过一次真实生成及一次显式编辑，各 1 次图片请求。profile 登录/真实 subscription endpoint/原生文件证明路线可用；未审计账单或额度扣减，`usage` 保留 unknown。参考上限 5 张（编辑原版占 1 张），单张 10 MiB、合计 40 MiB，输出 PNG 20 MiB/25M 像素，单 Action deadline 180 秒。当前只支持 opaque 输出；mask、透明背景、批量和额外 provider 未启用。
+
+| 路线 | 当前决定与证据 |
+|---|---|
+| Codex 原生登录/runtime | 主路线；独立 profile，文本/视觉无工具，图片由应用固定原生工具调用；分别通过行为探针。最小 Generate/Edit 真实闭环已通过 |
+| SIWC plan usage → Responses | 未实现；不把其权限或限制与原生 Codex 路线合并 |
+| OpenAI/Gemini/Ideogram/fal API | 未启用；不得作为隐式 fallback |
+| 人工导出 brief → 导入图片 | 用户显式选择时保留进度；不算自动原生制作证据 |
 
 官方资料支持原生内置图片计入 Codex 一般用量；具体说明在[内置生图文档](https://learn.chatgpt.com/docs/image-generation)。SIWC preview 当前排除图片生成等托管工具，见[限制页](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations)。二者是不同路线，不从一个 token 的存在推断所有工具都能用。
 

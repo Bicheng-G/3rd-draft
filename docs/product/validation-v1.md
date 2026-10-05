@@ -1,6 +1,57 @@
 # V1 — 实现差距与验证记录
 
-**当前结果：BLOCKED，依据修订后仍未满足的隔离控制。** 每个 Action 最多 2 次的 harness 机制已证明；当前 native Windows 项目读隔离不可用，正常宿主还发现独立 profile 仍可触发个人原生 Skill。已完成领域、独立 profile、兼容探针及前轮 102 项回归工作保留，探针进一步补足此盲点；下方旧 BLOCKED 记录不作为当前结论。批准、证据边界和取舍见 PRD 与 ADR-016。
+**当前结论：FEASIBLE — 最小原生 Generate → 不可变 AssetVersion → 指令 Edit → 新 AssetVersion / Project Memory 已通过，停止供 dogfooding。** 完整 V1 尚未验收。产品负责人接受 native Skill 为 best effort；下方严格 Skill / 单次操作 / selected-reference-only 的 BLOCKED 记录仅为历史，不能作为当前 gate。
+
+## 后继批准：Skill best effort，硬边界决定可行性（2026-10-05）
+
+PRD/ADR-017 先记录新批准，再调整实现/验证。本轮从干净 `90a10a9991b0537b0d533e8e916d83a45e3e3eaa` 开始，分支 `codex/production-loop-feasibility`。受测实现/测试/诊断提交为 **`734b4b2413da154aa1a0ce273f8d93037dcd36f7`**；后续文档提交只同步本结果，不改变受测代码。原有三项领域修正、profile 和兼容策略保留。没有推送、发布或加入凭证/真实图片/会话/私有报告；本地材料保留在被忽略的 `.workbench/`。
+
+### 最低控制与闭环证据
+
+| 必要边界 | 实装、测试和真实结果 | 判定与限制 |
+|---|---|---|
+| 每 Action 最多 2 次操作且授权不跨 Action | 复用前轮十项预算机制证据；当前产品在转发前同步保存 SQLite reservation，独占 Action staging，不退款、不自动重放。新 runtime/service 测试覆盖第三次/并发、重复 requestId/owner、恢复、取消/暂停 | PASS。真实两项 Action 各 1 次；未额外发收费请求测试限额，限额证据来自本地故障测试。未测试断电 |
+| 正常宿主/其他项目不能成为生产输入 | 外部模型 Responses/SSE 完全不进入 CLI，应用本地产生唯一固定 imagegen 调用。服务按项目解析资产并传 PNG Buffer；host 构造当前项目路径与调用 ID，无隐式历史图片。其他工具关闭。外部、其他项目、越界和 junction 路径负例拒绝；真实 staged 正例成功 | PASS，限于此固定工具执行面。不是 Windows 任意进程 OS 沙箱；旧 wrapper 失败仍成立。Skill 可加载，但没有把文本变为任意工具/路径的模型环节。代码审查与实际 CLI probe 支持本界限，不以事后检查字节替代读取约束 |
+| 独立认证且固定订阅路线 | 复用用户完成的独立交互 ChatGPT 登录，正常 host profile inspection 通过；真实 native CLI 生成认证头，仅向固定 ChatGPT Codex images endpoint 转发。API 认证、重定向、备用端点均拒绝 | PASS 路线及实际图片请求；没有账单/额度审计，usage 仍 unknown。个人四个指令/配置/认证文件检查不变，未复制个人凭证 |
+| 成功来自文件，非模型自报 | PNG 完整解码、尺寸/字节限制、响应字节等于原生实际文件；归档规范化 PNG，记录 inputHash/artifactHash。测试缺失/损坏/不匹配文件、伪造验证标志、仅模型文本均不成功 | PASS。两次真实 native 文件匹配；归档重新编码，因此原始/归档哈希不同且分别记录 |
+| 不可变原版、正确 lineage/依赖/记忆 | 新生成 parent=null，参考图为 dependency；编辑 parent=第一图，额外参考为空。两 run、ProductionSnapshot、能力/预算/结果元数据均留在 SQLite/Activity；原文件 hash 与编辑前 snapshot 相同 | PASS。归档故障/文件先写后事务失败/重启本地恢复由回归覆盖，未重复收费调用 |
+| 业务授权只来自应用用户动作 | 浏览器分别明确选择 concept + unchecked reference，再点击 Start image generation；第二项点击 Edit image 并提交编辑指令。服务认证/CSRF及作用域检查，模型无法调用业务 API | PASS。实际 selections 为空，无自动批准、采用、发布或下一 Production Action；Review/采用仍留给用户 |
+| Skill best effort 与可升级契约 | 契约 6 不再因 Skill canary 拒绝；保留配置/指令、工具、PNG、认证、无重试硬检查，记录不含路径/正文的观察。图片独立 probe 使用同一生产 dispatcher，新二进制/契约先测 | PASS。实际观察 selectedSkill=1，允许继续；观察来自 probe，不声称每次调用 Skill 清单。没有回到 exact-version equality |
+
+### 实际 runtime、profile 与有界探针
+
+实际 binary 为 **Codex 0.160.0**，路径 `C:\Users\zhuzh\AppData\Local\OpenAI\Codex\bin\f544b3844e0f14e9\codex.exe`，SHA-256 `4b01d5920e6785614727443bbecf343f4dedbb7347052b72ba805aab6353ef01`。历史 `0.159.0-alpha.12.1` 不可用，未重测、未声称当前证据覆盖它。基本契约 **6** 为 `42338840743ab3804b61ac4d2b0fbeafffdabbea822658f014b7ac43462fe79d`；图片契约为 `988d97a8a6a73ba43725ad91b6622a03652398b894431e5ece7176f63803400a`。成功缓存按实际二进制/契约在服务进程内复用。
+
+正常 Windows 宿主（不是编码 sandbox 账户）的基础 probe 于 `2026-10-05T08:17:15.797Z` 七项硬检查全部通过；success/503/broken-stream 各 1 本地请求、API-auth 0，真实调用 0。报告 `.workbench/native-skills-best-effort/actual-host-contract.json` SHA-256 `4c392c26689d4174ef1ca0b7511a896a9e1f70c8fa470280696b44c79654ce41`，evidenceId `4a60c1cdfc593d47790106928b93aea31738b5cf80c11523706a38bf0489da7a`。native Skill catalogue=0、selected=1，现作为观察而非失败。
+
+登录后的浏览器缓存问题修正在检查范围：CODEX_HOME 整体仍递归校验；隔离用户目录只递归 native `.agents` / `.codex` 子树，根与祖先继续拒绝链接，不删除缓存或提高上限。超过 5,000 项浏览器缓存及 native 配置链接回归通过。原独立 profile 的正常 inspect 于 `08:23:02.596Z` 返回 available、codex-native/subscription；`.workbench/native-skills-best-effort/owned-profile-status.json` SHA-256 `92c8002e6fbee2bfddbfd592dc008e084f2c7afabb7c89487606bc5fb2ad8e51`。这一步无真实模型调用。
+
+`node tools/probe-controlled-native-image.mjs` 调用同一产品 `runImageProbe` / dispatcher，用虚构 ChatGPT 认证验证原生 generation、reference/edit、native 文件、原生认证。报告 `.workbench/controlled-native-image-probe/result-2026-10-05T08-33-16-716Z-e9fc72cf-9e5e-4080-b875-b3a614b402cc.json` SHA-256 `53d1fd82183d9a30be7b0d0d492007d9a3d199758c3ac0d4abce7ca4c1485587`。正常生产服务首次 image inspect 也通过同一 probe，作为能力快照保存；这些 probe 没有真实图片服务调用。没有系统级网络 trace，不声称整个 native 进程绝无附带网络活动。
+
+前轮最终预算报告 `07-39-34-108Z`（下文完整路径、SHA-256 `ed50715d3d7f7d44a9391a5b055acda8d88e6e7d9326f59e69d6f7a98d576dac`）复用，不重跑。当前新增的是 SQLite 服务整合、固定工具编排和文件归档检查；前提未变的 Windows wrapper 负例同样不重跑。早期本轮探索性固定调用报告 `08-15-48-656Z` 保留在本地，不代替以上共享生产代码的最终 probe。
+
+### 两项真实 Production Actions
+
+数据根 `.workbench/native-production-acceptance` 使用用户此前亲自登录的应用 profile；合成项目 `ecfed245-775d-40d3-853e-a03aa1c0db08`（Native production · reading ritual）。手工 concept `3ccd1702-4bd7-4940-99a2-16c3d84a51b9`，set `c8411fb5-fcab-4ab0-85d7-6deba0e806e7`。参考为本地创建的合成书本/杯子图 `cf1356eb-ca02-45de-901e-2ac9d262e1f6`，不是用户真实资产。浏览器 UI 显式选择该 concept/ref；生产没有额外文字模型调用。
+
+| 操作 | 真实 run 与输出 | 文件证据 |
+|---|---|---|
+| Generate | run `44a0797f-f08a-4b93-ac2e-3a3013c3b62f`，asset `8cbdaf9e-6864-4aea-a778-a9fafba4e9d8`；1 次原生 images/edits（新图带参考），succeeded | 1254×1254。原生 SHA-256 `536e280ac604f6f862f776db217b342a9d62ab9b2a1eb939b19b28b18c9138bb`；归档 `504c79ff4828b27a2f3d519294eadf4a524373b50adb4e2e42dcd3a7178da474` |
+| Instruction Edit | run `31b07a4e-adcf-4490-9d3b-44f338a16d2f`，asset `4997ce14-784b-4c0a-b089-e3991183715a`；1 次原生 images/edits，succeeded，parent 为上一 asset | 1254×1254。原生 SHA-256 `76a169921264ef0968b018b3b4f0562b6cd8aed60efb37209863610fd696f5f6`；归档 `3333b425bf104b1e9134efe085776a3efdeb0d241d0fd637668fa3225b4ec2ad` |
+
+第二项指令只把 teal mug 改为 warm orange 并保持其他内容；目视两张原生归档图，杯子改色，书、桌面、背景与构图保留。未做像素级不变或商业视觉质量承诺。两项各持久 reservation=1、imageOperations=1、nativeFileVerified=true、modelSelfReportUsed=false，均留 requestId/generationId。实际总图片请求 **2**，无额外收费探针、无隐式 fallback/重发；未进行自动 Review/采用/发布。
+
+本地验收摘要 `.workbench/native-production-acceptance/acceptance-result.json` SHA-256 `39057b203c9758863c888b9d58c8d1325808b4ca176617c38a2cefc3d0760259`，包括真实 run、快照、哈希、lineage/依赖及断言。原图归档 hash 与编辑前 snapshot 相同；两张图均完整解码。个人 `AGENTS.md`、`AGENTS.override.md`、`config.toml`、`auth.json` 的存在状态/哈希与登录前记录一致；实际 AGENTS.md 原已为空，非空全局指令不干扰由合成兼容夹具证明，未为了产品清空任何个人文件。
+
+### 回归、UI 与停止范围
+
+完整 `npm test` **132/132 PASS，0 fail / 0 skip，17.542 秒**。日志 `.workbench/native-production-regression-final.log` SHA-256 `376e4889355b1198db56399420d3fea18911514d41d06d20b5c2e4bd2e5e5206`。保留领域、项目隔离、恢复、备份、HTTP 安全；新增 14 项 production 与 12 项 runtime-image 用例。首次完整运行 131/132，唯一失败是旧 HTTP fixture 仍要求“图片永远 blocked”的历史 evidence 字段；改为文字 double 缺少 native 身份时 unsupported，未伪造 live counter，最终全过。profile 缓存、原生文件证明/哈希和 prompt 上限均有针对性 RED→GREEN 证据。
+
+实际浏览器完成两个制作表单、检查 Studio 两个版本、Activity 两个 Saved run、打开 edit 的完整 context/ProductionSnapshot；控制台 0 errors / 0 warnings。选择器初次 label 查询未命中，改用实际 combobox role 后完成，没有重复提交。语法检查、task-owned diff 检查通过，独立代码复核未发现关键问题。没有再次运行历史 v0.1 live/性能/全部 wrapper 探针，未进行服务断电或真实 provider 故障注入；异常、取消、未知结果和本地归档恢复由回归验证。
+
+此结论只覆盖上述窄执行路线和运行身份，符合本地单用户产品批准的合理控制标准；不覆盖任意 agent 工具执行、多 provider、batch、透明/mask 编辑或全部宿主组合。今后若允许外部模型决定工具调用或任意路径，必须重新验证硬边界。当前停止实施，保留浏览器与合成结果供真实社媒工作流 dogfooding；真实品牌素材、配对质量、业务采用和完整 V1 发布门槛仍待用户工作流验证。
+
+## 前轮记录：两次操作、项目文件区及严格 Skill 门禁
 
 ## 后继批准：重新评估的最低证据（2026-10-05）
 

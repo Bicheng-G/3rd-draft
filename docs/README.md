@@ -1,8 +1,8 @@
 # 产品知识库
 
-基线：V1 实施中；v0.1 文字里程碑已验收 · 2026-10-02 · Asia/Singapore。维护责任：产品负责人维护范围与验收，架构负责人维护技术决策；root 负责本次集成与验收。
+当前状态：V1 实施中，最小原生图片闭环已验证；v0.1 文字里程碑保留历史验收 · 2026-10-05 · Asia/Singapore。维护责任：产品负责人维护范围与验收，架构负责人维护技术决策；root 负责本次集成与验收。
 
-最新授权（2026-10-05）：暂停外围 V1 扩展，先修正领域语义和全局 Codex 环境依赖，再做原生图片有界可行性判断。独立 profile 与行为兼容探针替代全局空指令要求和单一版本等值门禁；文字通过不意味着图片通过。产品负责人后继批准每个 Production Action 最多 2 次图片操作、可由 harness 强制执行，以及当前项目隔离文件区可读、正常宿主/其他项目不可读；新验证已证明两次操作的 harness 机制；当前 BLOCKED 来自 Windows 项目读隔离与宿主原生 Skill 隔离，历史与当前证据见 [V1 验证记录](product/validation-v1.md)。完整 V1 基线保留，FR-17/18 仍为 P1；旧文字证据见 [v0.1 验证记录](product/validation-v0.1.md)，启动/测试见 [项目指南](PROJECT_GUIDE.md)。
+最新授权与结果（2026-10-05）：暂停外围 V1 扩展，完成领域语义修正、应用独立 Codex profile 和最小原生图片闭环。实际二进制的有界行为探针替代全局空指令要求和单一版本等值门禁；文字与图片分别验证。ADR-017 将个人原生 Skill 抑制改为 best effort，保留项目数据、计费、批准和调用预算的硬边界。当前图片路线由应用在本地 Responses 中构造唯一原生图片调用，只使用应用暂存的项目图片，并通过固定订阅端点和持久化最多 2 次操作控制；不声称通用 OS 沙箱隔离。独立 ChatGPT profile 的真实 Generate 和一次指令 Edit 均成功，旧版保留、文件校验和新版本归档已通过，当前最小切片为 FEASIBLE，停止扩展并进入工作流 dogfooding。完整 V1 尚未验收，FR-17/18 仍为 P1；准确身份、限制和历史失败见 [V1 验证记录](product/validation-v1.md)，旧文字证据见 [v0.1 验证记录](product/validation-v0.1.md)，启动/测试见 [项目指南](PROJECT_GUIDE.md)。
 
 这是供后续开发和产品讨论使用的持久知识。没有标记为已实现的功能均为设计要求；没有附运行记录的能力均未在本产品验证。
 
@@ -33,10 +33,10 @@
 | [产品定义与边界](product/vision-and-scope.md) | 为什么做，价值和边界是什么？ | 当前 V1 范围与历史 v0.1 |
 | [PRD](product/prd-v0.1.md) | V1 要实现和验收什么？ | 保留原文件路径与 FR/AC ID；NFR-06 更新为英文界面 |
 | [流程与交互](product/workflows-and-ux.md) | 用户如何完成任务和处理失败？ | v0.1 设计 |
-| [系统架构](architecture/system-design.md) | 模块职责、存储、执行和安全如何分工？ | 原完整设计及 V1 实施注记；图片 M0 未通过 |
+| [系统架构](architecture/system-design.md) | 模块职责、存储、执行和安全如何分工？ | 原完整设计及 V1 实施注记；受控原生图片最小闭环已验证 |
 | [领域与记忆](architecture/domain-and-memory.md) | 什么是事实、版本、血缘和项目隔离？ | 既有契约及 schema v3 范围/来源修正 |
-| [Agent 与 Skill](architecture/agents-and-skills.md) | 谁负责判断，如何组合和约束 skills？ | v0.1 契约 |
-| [Provider 契约](architecture/provider-contract.md) | 如何接入、探测能力、计费和恢复？ | 文本/视觉输入已测；原生图片能力未通过 |
+| [Agent 与 Skill](architecture/agents-and-skills.md) | 谁负责判断，如何组合和约束 skills？ | 角色契约及 ADR-017 受控图片/个人 Skill 边界 |
+| [Provider 契约](architecture/provider-contract.md) | 如何接入、探测能力、计费和恢复？ | 有界行为探针与受控原生图片路线；真实生成/编辑已测 |
 | [架构决策记录](architecture/decisions.md) | 选择了什么，为什么，何时重议？ | ADR 基线 |
 | [质量评测](product/evaluation.md) | 如何证明不输手工流程且减少操作？ | 未执行的验证计划 |
 | [V1 验证记录](product/validation-v1.md) | 已有实现与完整要求差在哪，新增证据是什么？ | 工程、真实五任务、重启/备份及英文 UI 证据；V1 尚未通过 |

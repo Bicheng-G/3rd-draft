@@ -9,10 +9,14 @@
 - FR-05/19：同一 ConceptVersion 在不同 set 的选用/拒绝独立；新版不继承旧版选择。收藏和创意归档继续独立。旧版全局决策只保留历史，不猜测它属于哪个 set。
 - FR-08/11：AssetVersion 的 parent 只表示同一作品的前版本；新合成作品通过依赖引用视觉/logo，不把参考图误作前版本。历史不可变 payload/哈希保留，读取时明确解释旧合成 parent 的实际含义。
 - FR-19/20：手工创意仍由用户创建且无伪造 run；保存创建目标、显式证据/洞察版本及当时品牌版本基线。手工续作保留来源，品牌变化检查不能因手工编辑丢失；旧资料没有可恢复上下文时明确 unknown。
-- FR-13、NFR-01/04：Third Draft 使用自己拥有的 runtime profile；不读取或修改个人 Codex 配置、规则、skills、凭证或会话，不要求全局 AGENTS 文件为空。独立 ChatGPT 登录；不复制个人登录凭证。版本不是唯一兼容条件：二进制/隔离契约变化后执行有界本地探针，全过才允许相应能力，失败关闭；文字/视觉与生图能力分别验证。
+- FR-13、NFR-01/04：Third Draft 使用自己拥有的 runtime profile；应用不借用或修改个人 Codex 配置、规则、凭证或会话，不要求全局 AGENTS 文件为空。独立 ChatGPT 登录；不复制个人登录凭证。原生 Skill 隔离按下方后继批准为 best effort，发现/加载本身不阻断执行。版本不是唯一兼容条件：二进制/必要权限契约变化后执行有界本地探针，硬性检查全过才允许相应能力，失败关闭；文字/视觉与生图能力分别验证。
 - FR-07/08、M0（产品负责人本轮修订）：一次用户显式发起的 Production Action 最多允许 **2 次图片操作**，计数可由 Third Draft harness/runtime 边界强制实施，不要求原生图片接口独自提供限额。runtime 可读取当前项目隔离/staged 文件系统内的内容，但不得读取正常宿主文件或其他 Third Draft 项目；ProductionSnapshot 继续记录用户明确选定的参考图，选定参考图不再是项目隔离区内唯一可读文件。独立应用 profile 须完成自己的交互 ChatGPT 登录及真实订阅路线验证，不依赖或修改个人 Codex profile。所有控制通过后只实现 Generate→不可变 AssetVersion→一次显式指令 Edit→新 AssetVersion / Project Memory；否则仅依据修订后仍未满足的边界记录 BLOCKED 并停止。
 
 本轮批准明确取代此前“每动作只能 1 次图片操作”“只能读取所选参考文件”“限额必须由 native 接口提供”的验收条件。历史负例保留，但“两次操作”以及“越出 approved-input 子目录、仍在当前项目隔离区内”的读取不能单独构成 blocker。批准修订不等于已证明实现，新的可行性结论须附新边界下的运行证据。
+
+**后继批准：原生 Skill 为 best effort（2026-10-05，ADR-017）。** 产品负责人接受个人/native Skill 可能被 runtime 发现或加载；这本身不构成模型或图片阻断，不要求完美指令纯度。保留可靠、简单的抑制设置，实际可观察时记录环境可能含外部 Skill，不为纯度建设新基础设施。硬 P0 是限制正常宿主文件访问、隔离其他项目、固定显式 ChatGPT 订阅路线而不静默 API/BYOK/provider 回退，以及应用独占批准/采用/发布/新增 Production Action 的授权。每个显式 Action 最多 2 次图片操作，授权不跨 Action；文件成功必须由应用取回、验证、归档，不能依赖模型自报。只有 Skill 已被具体证据证明可击穿上述边界且 harness 无法约束，才重新成为阻断理由。旧 Skill 负例保留为观察，不再作为必要兼容性失败。
+
+本里程碑已实现并验证一条应用固定原生工具调用的路线，结论 FEASIBLE：Studio 必须明确选择一个概念版本、逐项选择参考，再点击 Start image generation；编辑从已生成版本选择并填写指令，点击 Start image edit，原版保留。上限 2 是每 Action 的硬上限，当前正常路径各发起 1 次；追加参考不自动取用 brief 中其他资产。回收文件、AssetVersion、lineage/依赖和 Project Memory 均通过应用验证保存，不自动采用或发布。最小限制为最多 5 张 PNG 输入（编辑原版占 1 张）、单张 10 MiB/合计 40 MiB，当前 opaque 输出。真实订阅 Generate/Edit 通过只关闭本里程碑，后续真实社媒工作流质量由 dogfooding 验证，不代表完整 V1 发布验收。证据见 [V1 验证](validation-v1.md)。
 
 无第二 provider、批处理、自主研究或新工作流基础设施。这个里程碑不表示 V1 发布、视觉质量或用户采用已经验收。具体结果与运行分母见 [V1 验证记录](validation-v1.md)。
 
