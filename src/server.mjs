@@ -37,11 +37,13 @@ function lockData(store) {
   }
   return ()=>{if(readFileSync(lock,'utf8')===String(process.pid))unlinkSync(lock);};
 }
-export async function startServer({dataDir,port=4057,runtime=new CodexRuntime(),lock=true}={}) {
+export async function startServer({dataDir,port=4057,runtime,lock=true}={}) {
   dataDir ??= process.env.THIRD_DRAFT_DATA_DIR || path.join(process.env.LOCALAPPDATA||path.join(os.homedir(),'.local','share'),'ThirdDraft');
   mkdirSync(safeDataPath(dataDir),{recursive:true});
   const unlock=lock?lockData({safePath:relative=>safeDataPath(dataDir,relative)}):()=>{};
-  let store;try{store=new Store(dataDir);}catch(error){unlock();throw error;}
+  let store;
+  try { store=new Store(dataDir);runtime ??= new CodexRuntime({runtimeHome:store.safePath(path.join('runtime','codex'))}); }
+  catch(error){store?.close();unlock();throw error;}
   const skills=new SkillLibrary(store),assetService=new AssetService(store),imageRuntime=new CodexImageRuntime({nativeRuntime:runtime});
   const service=new CreativeService(store,runtime,{skills,assets:assetService});
   service.recover();

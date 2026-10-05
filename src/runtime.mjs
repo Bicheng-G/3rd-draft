@@ -1,12 +1,13 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtemp, writeFile, rm, lstat, readdir } from 'node:fs/promises';
-import { tmpdir, homedir } from 'node:os';
-import { join, resolve, sep } from 'node:path';
+import { mkdtemp, mkdir, writeFile, rm, lstat, readdir, readFile, realpath } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { join, resolve, sep, dirname, isAbsolute, delimiter, parse } from 'node:path';
+import { probeRuntimeContract } from './runtime-compatibility.mjs';
 
-// Isolation was verified against this binary using a loopback transport with dummy
-// credentials. A runtime upgrade must repeat that test before widening this pin.
-export const SUPPORTED_CODEX_VERSION = '0.159.0-alpha.12.1';
+// Historical validation identity only. Compatibility is established by the
+// binary/configuration contract probe, never by accepting a version string.
+export const HISTORICAL_CODEX_VERSION = '0.159.0-alpha.12.1';
 export const VISION_INPUT_LIMITS = Object.freeze({ maxImages: 8,
   maxImageBytes: 10 * 1024 * 1024, maxTotalBytes: 40 * 1024 * 1024 });
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
@@ -15,17 +16,19 @@ const DISABLED_FEATURES = ['apps', 'plugins', 'hooks', 'shell_tool', 'view_image
   'in_app_browser', 'memories', 'multi_agent', 'multi_agent_v2', 'goals',
   'sleep_tool', 'code_mode', 'code_mode_host', 'code_mode_only', 'skill_search',
   'skill_mcp_dependency_install', 'workspace_dependencies', 'tool_suggest',
-  'shell_snapshot', 'realtime_conversation', 'unbounded_connection_retries'];
+  'shell_snapshot', 'realtime_conversation', 'unbounded_connection_retries', 'enable_request_compression'];
+export const SUBSCRIPTION_PROVIDER = Object.freeze({
+  name: 'OpenAI', base_url: 'https://chatgpt.com/backend-api/codex',
+  wire_api: 'responses', requires_openai_auth: true,
+  request_max_retries: 0, stream_max_retries: 0, supports_websockets: false,
+});
 const CONFIG = Object.freeze({
   model_provider: 'third_draft_subscription', forced_login_method: 'chatgpt', project_doc_max_bytes: 0,
-  // Built-in provider IDs cannot be overridden in the pinned CLI. This process-
-  // local alias uses native OpenAI authentication and pins the subscription URL.
+  cli_auth_credentials_store: 'file',
+  // This process-local provider uses native OpenAI authentication and fixes the
+  // subscription URL without depending on overridable built-in provider IDs.
   // No API-key source or api.openai.com endpoint exists in this configuration.
-  'model_providers.third_draft_subscription': {
-    name: 'OpenAI', base_url: 'https://chatgpt.com/backend-api/codex',
-    wire_api: 'responses', requires_openai_auth: true,
-    request_max_retries: 0, stream_max_retries: 0, supports_websockets: false,
-  },
+  'model_providers.third_draft_subscription': SUBSCRIPTION_PROVIDER,
   web_search: 'disabled', 'tools.update_plan.enabled': false,
   'tools.experimental_request_user_input.enabled': false, 'agents.enabled': false,
   'history.persistence': 'none', 'shell_environment_policy.inherit': 'none',
@@ -38,7 +41,7 @@ const TOOL_METADATA = Object.freeze({ shell_type: 'disabled', apply_patch_tool_t
   multi_agent_version: null, include_skills_usage_instructions: false,
   include_plugin_usage_instructions: false, include_apps_usage_instructions: false });
 export const RUNTIME_CONFIG_HASH = createHash('sha256')
-  .update(JSON.stringify({ version: SUPPORTED_CODEX_VERSION, config: CONFIG,
+  .update(JSON.stringify({ contract: 4, config: CONFIG,
     toolMetadata: TOOL_METADATA, visionInputLimits: VISION_INPUT_LIMITS }))
   .digest('hex');
 
@@ -68,34 +71,40 @@ function visionImages(images) {
 
 // Allowlist, rather than a denylist: no API key, endpoint override, provider token,
 // proxy credential, inherited agent session, or plugin environment reaches Codex.
-export function runtimeEnvironment(source = process.env) {
-  const allowed = new Set(['SYSTEMROOT', 'WINDIR', 'PATH', 'PATHEXT', 'TEMP', 'TMP',
-    'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'HOME', 'APPDATA', 'LOCALAPPDATA', 'CODEX_HOME',
-    'LANG', 'LC_ALL']);
-  return Object.fromEntries(Object.entries(source).filter(([key]) => allowed.has(key.toUpperCase())));
+export function defaultRuntimeHome(source = process.env) {
+  return join(source.LOCALAPPDATA || join(homedir(), 'AppData', 'Local'), 'ThirdDraft', 'runtime', 'codex');
 }
 
-export async function assertNativeInstructionIsolation(environment = process.env) {
+export function runtimeEnvironment(source = process.env, runtimeHome = defaultRuntimeHome(source)) {
+  const allowed = new Set(['SYSTEMROOT', 'WINDIR', 'PATH', 'PATHEXT', 'TEMP', 'TMP',
+    'LANG', 'LC_ALL']);
+  const root = dirname(resolve(runtimeHome)), user = join(root, 'home');
+  return { ...Object.fromEntries(Object.entries(source).filter(([key]) => allowed.has(key.toUpperCase()))),
+    CODEX_HOME: resolve(runtimeHome), USERPROFILE: user, HOME: user,
+    APPDATA: join(user, 'AppData', 'Roaming'), LOCALAPPDATA: join(user, 'AppData', 'Local'),
+    TEMP: join(root, 'tmp'), TMP: join(root, 'tmp') };
+}
+
+export async function assertNativeInstructionIsolation(environment = runtimeEnvironment()) {
   const nativeHome = environment.CODEX_HOME || join(environment.USERPROFILE || environment.HOME || homedir(), '.codex');
-  // --ignore-user-config does NOT suppress global AGENTS files in this CLI.
-  // There is no supported override. Refuse an unsafe profile without reading,
-  // copying, rewriting, or deleting the user's instructions or credentials.
+  // This check applies only to our application-owned profile. Personal Codex
+  // instructions are never inspected or changed.
   for (const name of ['AGENTS.md', 'AGENTS.override.md']) {
     let info;
     try { info = await lstat(join(nativeHome, name)); }
     catch (error) {
       if (error.code === 'ENOENT') continue;
-      throw new RuntimeError('unsupported_capability', 'Cannot verify that global Codex instructions are absent.');
+      throw new RuntimeError('unsupported_capability', 'Cannot verify the application runtime profile.');
     }
     if (!info.isFile() || info.isSymbolicLink() || info.size > 0)
-      throw new RuntimeError('unsupported_capability', 'This Codex profile has global AGENTS instructions. The isolated creative runtime requires an empty or absent global instruction file.');
+      throw new RuntimeError('unsupported_capability', 'The application runtime profile contains unexpected instructions. Reconnect using a clean Third Draft profile.');
   }
 }
 
-export async function disabledNativeSkills(environment = process.env) {
+export async function disabledNativeSkills(environment = runtimeEnvironment()) {
   const userHome = environment.USERPROFILE || environment.HOME || homedir();
   const nativeHome = environment.CODEX_HOME || join(userHome, '.codex');
-  // The pinned CLI may install its bundled skills on first launch, after this
+  // The runtime may install its bundled skills on first launch, after this
   // scan. Include these verified built-ins even when their files do not yet exist.
   const disabled = ['imagegen', 'openai-docs', 'skill-creator', 'skill-installer']
     .map(name => ({ path: join(nativeHome, 'skills', '.system', name, 'SKILL.md'), enabled: false }));
@@ -103,7 +112,12 @@ export async function disabledNativeSkills(environment = process.env) {
   async function scan(directory) {
     if (++scanned > 1500) throw new RuntimeError('unsupported_capability', 'Native skill discovery exceeds the isolation limit.');
     let entries;
-    try { entries = await readdir(directory, { withFileTypes: true }); }
+    try {
+      const info = await lstat(directory);
+      if (!info.isDirectory() || info.isSymbolicLink())
+        throw new RuntimeError('unsupported_capability', 'Linked native skills cannot be isolated.');
+      entries = await readdir(directory, { withFileTypes: true });
+    }
     catch (error) {
       if (error.code === 'ENOENT') return;
       throw new RuntimeError('unsupported_capability', 'Cannot verify native skill isolation.');
@@ -189,28 +203,41 @@ export function validateOutput(value, schema, path = '$') {
 
 export class CodexRuntime {
   constructor({ executable = process.env.THIRD_DRAFT_CODEX_PATH || 'codex',
-    spawnProcess = spawn, environment = process.env, timeoutMs = 180_000,
+    spawnProcess = spawn, environment = process.env, runtimeHome = defaultRuntimeHome(environment), timeoutMs = 180_000,
     maxOutputBytes = 2 * 1024 * 1024 } = {}) {
     this.executable = executable;
     this.spawnProcess = spawnProcess;
-    this.environment = runtimeEnvironment(environment);
+    this.runtimeHome = resolve(runtimeHome);
+    const personalHomes = [environment.CODEX_HOME,
+      join(environment.USERPROFILE || environment.HOME || homedir(), '.codex')].filter(Boolean).map(path => resolve(path).toLowerCase());
+    if (personalHomes.some(path => this.runtimeHome.toLowerCase() === path || this.runtimeHome.toLowerCase().startsWith(path + sep)))
+      throw new RuntimeError('invalid_input', 'Third Draft requires its own runtime home outside the personal Codex profile.');
+    this.environment = runtimeEnvironment(environment, this.runtimeHome);
     this.timeoutMs = Math.min(timeoutMs, 180_000);
     this.maxOutputBytes = maxOutputBytes;
   }
 
-  async command(args, { input, cwd, signal, onEvent, timeoutMs = 15_000,
+  async command(args, { input, cwd = this.runtimeHome, signal, onEvent, timeoutMs = 15_000,
+    environment = this.environment,
     maxOutputBytes = this.maxOutputBytes } = {}) {
     if (signal?.aborted) throw new RuntimeError('cancelled', 'Cancelled before runtime submission.');
     return new Promise((accept, reject) => {
       let child;
-      try { child = this.spawnProcess(this.executable, args, { env: this.environment,
+      try { child = this.spawnProcess(this.executable, args, { env: environment,
         cwd, shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] }); }
       catch { reject(new RuntimeError('runtime_unavailable', 'Cannot start Codex.')); return; }
       let stdout = '', stderr = '', lineBuffer = '', bytes = 0, submitted = false, finished = false;
-      const finish = (error, result) => {
+      const finish = (error, result, terminate = false) => {
         if (finished) return;
         finished = true; clearTimeout(timer); signal?.removeEventListener('abort', abort);
-        if (error) { child.kill(); reject(error); } else accept(result);
+        if (error || terminate) {
+          child.kill();
+          // Some native failure paths leave inherited pipe handles open after
+          // termination. They must not keep the application/probe alive.
+          child.stdin.destroy(); child.stdout.destroy(); child.stderr.destroy();
+          child.unref?.();
+        }
+        if (error) reject(error); else accept(result);
       };
       const abort = () => finish(new RuntimeError(submitted ? 'result_unknown' : 'cancelled',
         submitted ? 'Runtime interrupted after submission; usage or result may exist. Do not retry automatically.' : 'Cancelled before submission.'));
@@ -230,7 +257,14 @@ export class CodexRuntime {
             while ((newline = lineBuffer.indexOf('\n')) >= 0) {
               const line = lineBuffer.slice(0, newline).trim(); lineBuffer = lineBuffer.slice(newline + 1);
               if (!line) continue;
-              try { onEvent(JSON.parse(line)); }
+              try {
+                const event = JSON.parse(line);
+                onEvent(event);
+                if (event.type === 'turn.failed') {
+                  finish(null, { code: 1, stdout, stderr, termination: 'turn-failed' }, true);
+                  return;
+                }
+              }
               catch (error) { finish(error instanceof RuntimeError ? error : new RuntimeError('result_unknown', 'Runtime event protocol is invalid.')); return; }
             }
           }
@@ -254,22 +288,134 @@ export class CodexRuntime {
     });
   }
 
+  async prepareProfile() {
+    const paths = [dirname(this.runtimeHome), this.runtimeHome, this.environment.HOME,
+      this.environment.APPDATA, this.environment.LOCALAPPDATA, this.environment.TEMP];
+    for (const path of paths) {
+      // Check each existing ancestor before creating its next child. A junction
+      // at runtime/home/AppData must never redirect writes into a personal home.
+      let current = parse(path).root;
+      for (const segment of path.slice(current.length).split(sep).filter(Boolean)) {
+        current = join(current, segment);
+        let info;
+        try { info = await lstat(current); }
+        catch (error) {
+          if (error.code !== 'ENOENT') throw error;
+          await mkdir(current);
+          info = await lstat(current);
+        }
+        if (!info.isDirectory() || info.isSymbolicLink())
+          throw new RuntimeError('unsupported_capability', 'Linked runtime profile directories are not supported.');
+      }
+    }
+    for (const name of ['auth.json', 'config.toml']) {
+      try {
+        const info = await lstat(join(this.runtimeHome, name));
+        if (!info.isFile() || info.isSymbolicLink())
+          throw new RuntimeError('unsupported_capability', 'Linked runtime credentials or configuration are not supported.');
+      } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    }
+    // Skills, logs, databases and future native state all belong to this
+    // profile. Reject links before invoking native code, including links at a
+    // skills root (readdir alone would silently follow a junction).
+    let inspectedEntries = 0;
+    const inspectTree = async directory => {
+      for (const entry of await readdir(directory, { withFileTypes: true })) {
+        if (++inspectedEntries > 5000)
+          throw new RuntimeError('unsupported_capability', 'Runtime profile exceeds the isolation inspection limit.');
+        const path = join(directory, entry.name);
+        const info = await lstat(path);
+        if (info.isSymbolicLink() || (info.isFile() && info.nlink > 1))
+          throw new RuntimeError('unsupported_capability', 'Linked runtime profile state is not supported.');
+        if (info.isDirectory()) await inspectTree(path);
+      }
+    };
+    await inspectTree(this.runtimeHome);
+    await inspectTree(this.environment.HOME);
+    await assertNativeInstructionIsolation(this.environment);
+  }
+
+  async executableIdentity() {
+    const pathValue = Object.entries(this.environment).find(([key]) => key.toUpperCase() === 'PATH')?.[1] || '';
+    const names = process.platform === 'win32' && !/\.[a-z0-9]+$/i.test(this.executable)
+      ? [this.executable + '.exe'] : [this.executable];
+    const candidates = isAbsolute(this.executable) || this.executable.includes('/') || this.executable.includes('\\')
+      ? [resolve(this.executable)] : pathValue.split(delimiter).flatMap(path => names.map(name => join(path, name)));
+    for (const candidate of candidates) {
+      try {
+        const path = await realpath(candidate);
+        if (!(await lstat(path)).isFile()) continue;
+        const executableHash = createHash('sha256').update(await readFile(path)).digest('hex');
+        return { path, executableHash };
+      } catch (error) { if (!['ENOENT', 'ENOTDIR', 'EACCES', 'EPERM'].includes(error.code)) throw error; }
+    }
+    throw new RuntimeError('runtime_unavailable', 'Codex executable is unavailable.');
+  }
+
+  async probeCompatibility() {
+    if (this.compatibilityPromise) return this.compatibilityPromise;
+    this.compatibilityPromise = this.checkCompatibility();
+    try { return await this.compatibilityPromise; }
+    finally { this.compatibilityPromise = null; }
+  }
+
+  async runCompatibilityProbe(options) { return probeRuntimeContract(options); }
+
+  async checkCompatibility() {
+    let version = null, identity;
+    try {
+      await this.prepareProfile();
+      identity = await this.executableIdentity();
+      // Resolve once so PATH changes cannot switch binaries after validation.
+      this.executable = identity.path;
+      const key = identity.executableHash + ':' + RUNTIME_CONFIG_HASH;
+      if (this.compatibilityKey === key && this.compatibility) return this.compatibility;
+      const versionResult = await this.command(['--version']);
+      version = versionResult.stdout.trim().replace(/^codex-cli\s+/, '');
+      if (versionResult.code !== 0 || !/^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/.test(version))
+        throw new RuntimeError('unsupported_capability', 'Codex did not report a recognizable runtime version.');
+      const catalogResult = await this.command(['debug', 'models', '--bundled', '-c', 'cli_auth_credentials_store="file"'],
+        { maxOutputBytes: 5 * 1024 * 1024 });
+      let catalog;
+      try { if (catalogResult.code !== 0) throw new Error(); catalog = toolFreeCatalog(JSON.parse(catalogResult.stdout)); }
+      catch { throw new RuntimeError('unsupported_capability', 'Cannot inspect the bundled Codex model catalog.'); }
+      const result = await this.runCompatibilityProbe({
+        command: (args, options) => this.command(args, options), environment: this.environment,
+        argumentsFor: runtimeArguments, disableSkills: disabledNativeSkills, catalog,
+        providerConfig: SUBSCRIPTION_PROVIDER,
+        root: dirname(this.runtimeHome), version, configHash: RUNTIME_CONFIG_HASH,
+        executableHash: identity.executableHash,
+      });
+      this.compatibilityKey = key;
+      this.compatibility = result;
+      if (result.status === 'passed') this.catalog = catalog;
+      return result;
+    } catch (error) {
+      return { status: 'failed', version, configHash: RUNTIME_CONFIG_HASH,
+        executableHash: identity?.executableHash ?? null,
+        reason: error.code === 'runtime_unavailable' ? error.code : 'unsupported_capability',
+        detail: error.message, intendedLiveModelRequests: 0, networkEvidence: 'configured-loopback-only; no process-wide network trace' };
+    }
+  }
+
   async inspect() {
     const base = { available: false, route: 'codex-native', billing: 'subscription',
       version: null, reason: null, usage: null, configHash: RUNTIME_CONFIG_HASH,
       capabilities: { vision_input: { available: false, format: 'image/png',
         validation: 'local-transport', ...VISION_INPUT_LIMITS } } };
     try {
-      await assertNativeInstructionIsolation(this.environment);
-      await disabledNativeSkills(this.environment);
-      const versionResult = await this.command(['--version']);
-      const version = versionResult.stdout.trim().replace(/^codex-cli\s+/, '');
-      base.version = version;
-      if (versionResult.code !== 0 || version !== SUPPORTED_CODEX_VERSION)
-        return { ...base, reason: 'unsupported_capability', detail: `Tool isolation is verified only for Codex ${SUPPORTED_CODEX_VERSION}.` };
-      const login = await this.command(['login', 'status']);
+      const compatibility = await this.probeCompatibility();
+      base.version = compatibility.version;
+      base.compatibility = compatibility;
+      if (compatibility.status !== 'passed')
+        return { ...base, reason: compatibility.reason || 'unsupported_capability', detail: compatibility.detail };
+      const login = await this.command(['login', 'status', '-c', 'cli_auth_credentials_store="file"', '-c', 'forced_login_method="chatgpt"']);
       if (login.code !== 0 || !/^Logged in using ChatGPT\s*$/m.test(`${login.stdout}\n${login.stderr}`))
-        return { ...base, reason: 'auth_required', detail: 'Native ChatGPT login is unavailable to this process. API authentication is not accepted.' };
+        return { ...base, reason: 'auth_required', detail: 'Sign in to ChatGPT in the separate Third Draft runtime profile. Personal Codex credentials are not imported. API authentication is not accepted.',
+          authSetup: { executable: this.executable, args: ['login', '-c', 'cli_auth_credentials_store="file"', '-c', 'forced_login_method="chatgpt"'],
+            environment: { CODEX_HOME: this.environment.CODEX_HOME, USERPROFILE: this.environment.USERPROFILE,
+              HOME: this.environment.HOME, APPDATA: this.environment.APPDATA, LOCALAPPDATA: this.environment.LOCALAPPDATA },
+            home: this.runtimeHome } };
       return { ...base, available: true,
         capabilities: { vision_input: { ...base.capabilities.vision_input, available: true } } };
     } catch (error) { return { ...base, reason: error.code ?? 'runtime_unavailable', detail: error.message }; }
@@ -283,11 +429,9 @@ export class CodexRuntime {
     const inputImages = visionImages(images);
     const inspected = await this.inspect();
     if (!inspected.available) throw new RuntimeError(inspected.reason, inspected.detail);
-    const catalogResult = await this.command(['debug', 'models', '--bundled'], { signal, maxOutputBytes: 5 * 1024 * 1024 });
-    let catalog;
-    try { if (catalogResult.code !== 0) throw new Error(); catalog = toolFreeCatalog(JSON.parse(catalogResult.stdout)); }
-    catch (error) { throw error instanceof RuntimeError ? error : new RuntimeError('unsupported_capability', 'Cannot inspect the bundled Codex model catalog.'); }
-    const directory = await mkdtemp(join(tmpdir(), 'third-draft-runtime-'));
+    const catalog = this.catalog;
+    if (!catalog) throw new RuntimeError('unsupported_capability', 'Runtime compatibility has not supplied a verified model catalog.');
+    const directory = await mkdtemp(join(this.environment.TEMP, 'third-draft-runtime-'));
     try {
       await writeFile(join(directory, 'models.json'), JSON.stringify(catalog), 'utf8');
       await writeFile(join(directory, 'schema.json'), JSON.stringify(schema), 'utf8');
@@ -308,6 +452,7 @@ export class CodexRuntime {
       // work product. It excludes prompts, rejected output and temporary paths.
       const receipt = () => ({ usage, metadata: { route: inspected.route, billing: inspected.billing,
         version: inspected.version, configHash: createHash('sha256').update(RUNTIME_CONFIG_HASH + JSON.stringify(disabledSkills)).digest('hex'),
+        compatibility: inspected.compatibility,
         baseConfigHash: RUNTIME_CONFIG_HASH, disabledSkillCount: disabledSkills.length, threadId,
         model: null, modelSelection: 'runtime-default', tools: [], ephemeral: true,
         visionInput: { count: inputImages.length,
@@ -341,7 +486,7 @@ export class CodexRuntime {
         throw error;
       }
     } finally {
-      const target = resolve(directory), boundary = resolve(tmpdir()) + sep;
+      const target = resolve(directory), boundary = resolve(this.environment.TEMP) + sep;
       if (target.startsWith(boundary) && target.slice(boundary.length).startsWith('third-draft-runtime-'))
         await rm(target, { recursive: true, force: true });
     }

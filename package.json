@@ -9,7 +9,9 @@
   "scripts": {
     "start": "node --experimental-sqlite src/server.mjs",
     "test": "node --experimental-sqlite --test tests/*.test.mjs",
-    "validate:live": "node --experimental-sqlite tools/validate-live.mjs"
+    "validate:live": "node --experimental-sqlite tools/validate-live.mjs",
+    "runtime:check": "node tools/runtime-login.mjs --check",
+    "runtime:login": "node tools/runtime-login.mjs"
   },
   "dependencies": {
     "fflate": "0.8.3",

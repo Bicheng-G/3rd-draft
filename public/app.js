@@ -212,12 +212,13 @@ function sourceLink(url, label = url) {
 function editIdea(concept = null) {
   const editor = openEditor(concept ? 'Create a new idea version' : 'Add your own idea', concept ? 'Your saved version stays intact. This edit creates a new version linked to it.' : 'Save a thought without running a model. You can develop it, favorite it, or add it to a creative set later.', concept ? 'Save new version' : 'Save idea', async (form, projectId) => {
     const values = formValues(form);
-    await api(`${projectPath(projectId)}/concepts`, { ...values, assumptions: lines(values.assumptions), ...(concept ? { parentId: concept.id } : {}) });
+    await api(`${projectPath(projectId)}/concepts`, { ...values, assumptions: lines(values.assumptions), insightVersionIds: chosenValues(form, 'insightVersionIds'), evidenceVersionIds: chosenValues(form, 'evidenceVersionIds'), ...(concept ? { parentId: concept.id } : {}) });
     await refreshProject(projectId);
     if (projectId === state.projectId) notify(concept ? 'A new version is saved. The original is unchanged.' : 'Your idea is saved to this project.');
   });
   const fields = editor.fields;
   addField(fields, 'Title', 'title', concept?.title, { required: true, maxLength: 160 });
+  addField(fields, 'Creation goal (optional)', 'goal', concept?.creationContext?.goal, { multiline: true, maxLength: 2000 });
   addField(fields, 'Creative angle', 'angle', concept?.angle, { required: true, maxLength: 500 });
   addField(fields, 'Theme', 'theme', concept?.theme, { maxLength: 200 });
   addField(fields, 'Underlying insight', 'insight', concept?.insight, { multiline: true, maxLength: 2000 });
@@ -225,6 +226,9 @@ function editIdea(concept = null) {
   addField(fields, 'Visual direction', 'visualDirection', concept?.visualDirection, { required: true, multiline: true, maxLength: 2000, hint: 'A written suggestion; saving does not generate an image.' });
   addField(fields, 'Why this idea', 'rationale', concept?.rationale, { required: true, multiline: true, maxLength: 2000 });
   addField(fields, 'Assumptions to validate', 'assumptions', concept?.assumptions?.join('\n'), { multiline: true, maxLength: 6000, hint: 'One assumption per line. Leave empty if there are none.' });
+  addChoices(fields, 'Insights used for this version (optional)', 'insightVersionIds', state.data.insights, concept?.creationContext?.insightVersionIds || []);
+  addChoices(fields, 'Sources used for this version (optional)', 'evidenceVersionIds', state.data.evidence, concept?.creationContext?.evidenceVersionIds || []);
+  fields.append(el('p', 'field-hint', 'Saving records the current brand versions for future change checks. Only the sources you select are recorded as used; revising an idea preserves its origin.'));
 }
 
 function editEvidence(record = null) {
@@ -475,6 +479,11 @@ function renderSets() {
     const idea = state.data.concepts.find((record) => record.id === id);
     if (!idea) { detail.append(el('p', 'notice error', `Referenced idea is unavailable: ${id}`)); continue; }
     const card = el('article', 'set-idea-card'); card.append(el('h3', '', idea.title), el('p', 'field-hint', idea.angle), el('p', 'work-body', idea.body));
+    const selection = set.conceptSelections?.find((record) => record.conceptId === id);
+    card.append(el('p', 'badge', selection?.decision === 'adopted' ? 'Selected in this set' : selection?.decision === 'rejected' ? 'Rejected in this set' : 'No decision in this set'));
+    if (selection?.reason) card.append(el('p', 'field-hint', selection.reason));
+    const decide = projectButton('Record set decision', 'text-button', () => recordSetDecision(idea, set));
+    decide.disabled ||= Boolean(set.archived || idea.archived); card.append(decide);
     const continueButton = projectButton('Continue this version ↗', 'text-button', () => { continueConcept(idea); $('#creative-set').value = set.id; }); continueButton.disabled ||= Boolean(set.archived || idea.archived); card.append(continueButton);
     if (idea.archived) card.append(el('p', 'field-hint', 'This idea is archived. Its set reference is preserved.'));
     detail.append(card);
@@ -606,12 +615,12 @@ function composeImage(set, existing = null) {
   const composition = existing?.composition;
   const editor = openEditor(existing ? 'Compose a new image version' : 'Compose an image locally', 'An editorial template places the selected visual, exact headline, logo, and optional call to action. No model call is made. Overflow and missing fonts are reported before success.', 'Create composition', async (form, projectId) => {
     const values = formValues(form);
-    await api(`${projectPath(projectId)}/compose`, { ...values, setId: set.id });
+    await api(`${projectPath(projectId)}/compose`, { ...values, setId: set.id, ...(existing ? { parentAssetId: existing.id } : {}) });
     await refreshProject(projectId);
     if (projectId === state.projectId) notify('New composition saved. Review it before final adoption.');
   });
   const fields = editor.fields;
-  addField(fields, 'Idea version', 'conceptId', existing?.conceptId || set.conceptIds[0], { required: true, options: set.conceptIds.map((id) => ({ value: id, label: state.data.concepts.find((idea) => idea.id === id)?.title || id })) });
+  addField(fields, 'Idea version', 'conceptId', existing?.conceptId || set.conceptIds[0], { required: true, options: (existing ? [existing.conceptId] : set.conceptIds).map((id) => ({ value: id, label: state.data.concepts.find((idea) => idea.id === id)?.title || id })) });
   addField(fields, 'Source visual', 'visualId', composition?.visualId || images[0].id, { required: true, options: images.map((asset) => ({ value: asset.id, label: `${asset.name} · ${asset.width} × ${asset.height}` })) });
   addField(fields, 'Logo', 'logoId', composition?.logoId || logos[0].id, { required: true, options: logos.map((asset) => ({ value: asset.id, label: asset.name })) });
   addField(fields, 'Image name', 'name', existing?.name || '', { maxLength: 160 });
@@ -709,7 +718,7 @@ function assetCard(asset, set) {
   actions.append(adopt, projectButton('Reject', 'text-button', () => selectAsset(asset, 'rejected')));
   content.append(actions, reviewDetails(asset));
   const publicationActions = el('div', 'publication-actions'); publicationActions.append(el('span', 'field-hint', 'Publication record:'), projectButton('Published', 'text-button', () => selectAsset(asset, 'published')), projectButton('Unpublished', 'text-button', () => selectAsset(asset, 'unpublished'))); content.append(publicationActions);
-  const technical = el('details', 'technical-details'); technical.append(el('summary', '', 'Image lineage and machine checks'), el('pre', '', JSON.stringify({ id: asset.id, parentId: asset.parentId, conceptId: asset.conceptId, briefId: asset.briefId, artifactHash: asset.artifactHash, method: asset.method, composition: asset.composition, machineChecks: asset.machineChecks }, null, 2))); content.append(technical);
+  const technical = el('details', 'technical-details'); technical.append(el('summary', '', 'Image lineage and machine checks'), el('pre', '', JSON.stringify({ id: asset.id, lineage: asset.lineage, recordedParentId: asset.parentId, conceptId: asset.conceptId, briefId: asset.briefId, artifactHash: asset.artifactHash, method: asset.method, composition: asset.composition, machineChecks: asset.machineChecks }, null, 2))); content.append(technical);
   if (set.archived) for (const node of content.querySelectorAll('button')) { node.disabled = true; node.dataset.blockedBySet = 'true'; }
   card.append(content); return card;
 }
@@ -975,7 +984,7 @@ function canRun() {
 
 function runtimeGuidance() {
   const reason = state.runtime?.reason;
-  if (reason === 'auth_required') return 'Sign in to your ChatGPT subscription through Codex on this computer, then refresh the connection.';
+  if (reason === 'auth_required') return 'Sign in to ChatGPT for the separate Third Draft runtime: run npm run runtime:login from the installation folder, then refresh the connection. Your normal Codex login is separate.';
   if (reason === 'unsupported_capability') return `The installed Codex version or isolation settings do not meet the requirements. See the setup guide; do not remove personal configuration to bypass this check.${state.runtime?.detail ? `\n${state.runtime.detail}` : ''}`;
   return `${reason || 'Runtime status is unknown.'} Check the local Codex installation and connection, then refresh.`;
 }
@@ -1145,6 +1154,20 @@ function renderConcepts() {
       addDetail(details, 'Source version', parent?.title || concept.parentId);
     }
     if (concept.runId) details.append(button('View the saved context ↗', 'text-button', () => showRun(concept.runId)));
+    if (concept.createdBy === 'user') {
+      addDetail(details, 'Authorship', concept.parentId ? 'Manual revision of the source version' : 'Manually created idea');
+      if (concept.creationContext) {
+        addDetail(details, 'Creation goal', concept.creationContext.goal);
+        addDetail(details, 'Selected insights', (concept.creationContext.insightVersionIds || []).map((id) => state.data.insights.find((item) => item.id === id)?.title || id));
+        addDetail(details, 'Selected sources', (concept.creationContext.evidenceVersionIds || []).map((id) => state.data.evidence.find((item) => item.id === id)?.title || id));
+        addDetail(details, 'Brand versions when saved', (concept.creationContext.confirmedBrandVersionIds || []).map((id) => state.data.knowledge.find((item) => item.id === id)?.title || id));
+        details.append(el('p', 'field-hint', 'Brand versions provide a change-check baseline; they are not a claim that every fact was used.'));
+        const context = el('details', 'technical-details'); context.append(el('summary', '', 'Inspect saved origin and creation context'), el('pre', '', JSON.stringify({ provenance: concept.provenance, creationContext: concept.creationContext }, null, 2))); details.append(context);
+      } else details.append(el('p', 'field-hint', 'Creation context was not recorded for this historical manual version.'));
+      let ancestor = concept, visited = new Set();
+      while (ancestor?.parentId && !ancestor.runId && !visited.has(ancestor.id)) { visited.add(ancestor.id); ancestor = state.data.concepts.find((item) => item.id === ancestor.parentId); }
+      if (ancestor?.runId) details.append(button('Inspect source generation context ↗', 'text-button', () => showRun(ancestor.runId)));
+    }
     card.append(details);
     card.append(feedbackForm(concept));
     card.append(ideaDecisions(concept));
@@ -1162,7 +1185,10 @@ function renderConcepts() {
       for (const node of card.querySelectorAll('details')) node.open = draft.openDetails.includes(node.className);
       for (const form of card.querySelectorAll('form')) {
         const previous = draft.forms.find((entry) => entry.key === form.dataset.formKey);
-        if (previous) for (const control of form.elements) if (control.name && previous.values[control.name] !== undefined) control.value = previous.values[control.name];
+        if (previous) {
+          for (const control of form.elements) if (control.name && previous.values[control.name] !== undefined) control.value = previous.values[control.name];
+          for (const control of form.querySelectorAll('select')) control.dispatchEvent(new Event('change'));
+        }
       }
     }
     if (isArchived()) for (const node of card.querySelectorAll('form input, form textarea, form select, form button')) node.disabled = true;
@@ -1220,6 +1246,18 @@ function feedbackForm(concept) {
   return details;
 }
 
+function recordSetDecision(concept, set) {
+  const current = set.conceptSelections?.find((record) => record.conceptId === concept.id);
+  const editor = openEditor('Choose this idea for a set', `This decision applies to “${set.name}” and this exact idea version. Other sets make their own decisions. Saving does not start production.`, 'Save set decision', async (form, projectId) => {
+    await api(`${projectPath(projectId)}/selections`, { targetType: 'concept', targetId: concept.id, setId: set.id, ...formValues(form) });
+    await refreshProject(projectId);
+    if (projectId === state.projectId) notify('Decision saved for this idea version in this set.');
+  });
+  editor.fields.append(el('p', 'source-strip', concept.title));
+  addField(editor.fields, 'Decision', 'decision', current?.decision || 'adopted', { options: [{ value: 'adopted', label: 'Select for this set' }, { value: 'rejected', label: 'Reject for this set' }] });
+  addField(editor.fields, 'Reason', 'reason', current?.reason || '', { required: true, multiline: true, maxLength: 1500 });
+}
+
 function ideaDecisions(concept) {
   const details = el('details', 'decision-details');
   details.append(el('summary', '', 'Favorite reason and decisions'));
@@ -1240,22 +1278,28 @@ function ideaDecisions(concept) {
   });
   details.append(favoriteForm);
   const history = state.data.selections.filter((record) => record.targetType === 'concept' && record.targetId === concept.id);
-  const labels = { rejected: 'Rejected', adopted: 'Adopted for use', published: 'Manually marked published', unpublished: 'Manually marked unpublished' };
+  const labels = { rejected: 'Rejected for set', adopted: 'Selected for set', published: 'Manually marked published', unpublished: 'Manually marked unpublished' };
   for (const record of history) {
-    const row = el('div', 'feedback-item'); row.append(el('span', '', `${labels[record.decision] || record.decision} · ${dateLabel(record.createdAt)}`), el('p', '', record.reason)); details.append(row);
+    const scope = record.setId ? state.data.sets.find((set) => set.id === record.setId)?.name || record.setId : ['adopted', 'rejected'].includes(record.decision) ? 'Historical decision without set scope' : 'Idea record';
+    const row = el('div', 'feedback-item'); row.append(el('span', '', `${labels[record.decision] || record.decision} · ${scope} · ${dateLabel(record.createdAt)}`), el('p', '', record.reason)); details.append(row);
   }
   const form = el('form', 'compact-form'); form.dataset.formKey = 'decision';
   const decisionLabel = el('label', '', 'Record a decision'); const decision = el('select'); decision.name = 'decision';
   fillOptions(decision, Object.entries(labels).map(([value, label]) => ({ value, label })), null, 'rejected'); decisionLabel.append(decision);
+  const setLabel = el('label', '', 'Creative set'); const setChoice = el('select'); setChoice.name = 'setId'; setLabel.append(setChoice);
+  const sets = state.data.sets.filter((set) => !set.archived && set.conceptIds.includes(concept.id));
+  fillOptions(setChoice, sets.map((set) => ({ value: set.id, label: set.name })), 'Choose a set', sets.length === 1 ? sets[0].id : '');
+  const syncScope = () => { const scoped = ['adopted', 'rejected'].includes(decision.value); setLabel.hidden = !scoped; setChoice.required = scoped; setChoice.disabled = !scoped; };
+  decision.addEventListener('change', syncScope); syncScope();
   const reasonLabel = el('label', '', 'Reason'); const reason = el('textarea'); reason.name = 'reason'; reason.rows = 2; reason.maxLength = 1500; reason.required = true; reasonLabel.append(reason);
   const submit = el('button', 'button secondary', 'Save decision'); submit.type = 'submit';
-  form.append(decisionLabel, reasonLabel, el('p', 'field-hint', 'A saved decision does not publish content or demonstrate marketing performance.'), submit);
+  form.append(decisionLabel, setLabel, reasonLabel, el('p', 'field-hint', 'Select or reject this version separately in each set. Add it to a set first. A saved decision does not start production or publish content.'), submit);
   form.addEventListener('submit', (event) => {
     event.preventDefault(); if (!form.reportValidity()) return;
     const projectId = state.projectId;
     action(submit, async () => {
-      await api(`${projectPath(projectId)}/selections`, { targetType: 'concept', targetId: concept.id, decision: decision.value, reason: reason.value.trim() });
-      form.reset(); await refreshProject(projectId);
+      await api(`${projectPath(projectId)}/selections`, { targetType: 'concept', targetId: concept.id, decision: decision.value, reason: reason.value.trim(), ...(!setChoice.disabled ? { setId: setChoice.value } : {}) });
+      form.reset(); syncScope(); await refreshProject(projectId);
       if (projectId === state.projectId) notify('Your decision and its reason are saved.');
     });
   });

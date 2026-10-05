@@ -1,16 +1,16 @@
-import { CodexRuntime, RuntimeError, SUPPORTED_CODEX_VERSION } from './runtime.mjs';
+import { CodexRuntime, RuntimeError } from './runtime.mjs';
 
 // Capability discovery is not an accepted integration. Keep image submission
 // closed until both controls are enforced before the native tool executes.
 // No fallback to an API key, another provider, or a model-written file exists.
 const BLOCKERS = Object.freeze([
   Object.freeze({ code: 'image_call_budget_unenforced',
-    detail: 'No hard one-image-call limit has been verified. The inspected public hook implementation fails open on execution or parsing failures.' }),
-  Object.freeze({ code: 'reference_read_isolation_unverified',
-    detail: 'The native image tool accepts arbitrary local reference paths. Approved-reference isolation has not passed an end-to-end native probe.' }),
+    detail: 'Codex 0.160.0 accepted two native image operations in one turn in the bounded local transport probe. No enforced one-operation limit was demonstrated.' }),
+  Object.freeze({ code: 'reference_read_isolation_failed',
+    detail: 'Codex 0.160.0 read an unapproved synthetic reference outside the work directory despite a separate profile and read-only sandbox. Native image production remains disabled.' }),
 ]);
 
-const CHECKED_AT = '2026-10-02';
+const CHECKED_AT = '2026-10-05';
 const SOURCE_REVISION = 'ca466061d64f0b44f416135c7fd06aa7af850bbc';
 const SOURCE_BASE = `https://github.com/openai/codex/blob/${SOURCE_REVISION}`;
 const SOURCES = Object.freeze({
@@ -40,10 +40,13 @@ export class CodexImageRuntime {
       },
       blockers: BLOCKERS.map(blocker => ({ ...blocker })),
       evidence: {
-        checkedAt: CHECKED_AT, verifiedCliVersion: SUPPORTED_CODEX_VERSION,
+        checkedAt: CHECKED_AT, observedCliVersion: '0.160.0', historicalPinnedVersion: '0.159.0-alpha.12.1',
         toolExposure: 'loopback-only', exposedTool: 'image_gen.imagegen',
         appServerResultSchema: 'imageGeneration',
         liveImageAttempts: 0, acceptedNativeImageProbes: 0,
+        controlProbe: 'tools/probe-native-image.mjs', controlProbeTransport: 'local-dummy',
+        observedImageOperationsInOneTurn: 2, unapprovedReferenceRead: true,
+        conclusion: 'blocked', observationScope: 'The tested binary and probe configuration are identified in the V1 validation record. Other binaries are unverified.',
         // Public source is explanatory evidence, not an assertion that its
         // revision is the installed desktop binary's build revision.
         publicSourceRevision: SOURCE_REVISION,

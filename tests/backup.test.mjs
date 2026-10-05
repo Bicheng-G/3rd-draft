@@ -103,7 +103,7 @@ test('private backup roundtrips every version, link, reason, archive and histori
   assert.deepEqual(new Set(records.skill_packages.map(row => row.id)), new Set([historical.id, current.id]));
   assert.equal(records.project_skills.length, 1); assert.equal(records.knowledge_assets.length, 1); assert.equal(records.asset_links.length, 1);
   const destination = path.join(directory, 'restored'), result = restoreProject(archive, destination);
-  assert.equal(result.projectId, a.id); assert.equal(result.archived, true); assert.equal(result.schemaVersion, 2);
+  assert.equal(result.projectId, a.id); assert.equal(result.archived, true); assert.equal(result.schemaVersion, 3);
   const restored = new Store(destination); t.after(() => restored.close()); const restoredLibrary = new SkillLibrary(restored);
   assert.deepEqual(restored.projects(), [store.project(a.id)]);
   for (const [table, columns] of Object.entries(BACKUP_TABLES)) {

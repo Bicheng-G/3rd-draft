@@ -45,7 +45,7 @@ export class AssetService {
   }
   save(projectId,normalized,fields){
     this.store.assertWritable(projectId);
-    const record={...fields,id:id(),mime:'image/png',width:normalized.width,height:normalized.height,inputHash:normalized.inputHash,createdAt:now(),schemaVersion:2};
+    const record={...fields,id:id(),mime:'image/png',width:normalized.width,height:normalized.height,inputHash:normalized.inputHash,createdAt:now(),schemaVersion:3};
     record.artifactPath=path.join('projects',projectId,'assets',record.id,'image.png');record.artifactHash=hash(normalized.bytes);record.contentHash=hash(record);
     const filename=this.store.safePath(record.artifactPath);mkdirSync(path.dirname(filename),{recursive:true});writeFileSync(filename+'.tmp',normalized.bytes,{flag:'wx'});
     if(hash(readFileSync(filename+'.tmp'))!==record.artifactHash)throw new AppError('archive_failed','Image write verification failed.',500);renameSync(filename+'.tmp',filename);
@@ -64,6 +64,11 @@ export class AssetService {
   }
   async compose(projectId,input){
     this.store.assertWritable(projectId);const snapshot=this.snapshot(projectId,input),visual=this.store.record('assets',projectId,input.visualId),logo=this.store.record('assets',projectId,input.logoId);
+    const previous=input.parentAssetId?this.store.record('assets',projectId,input.parentAssetId):null;
+    if(previous){
+      if(previous.method!=='layered'||previous.setId!==snapshot.setId||previous.conceptId!==snapshot.conceptId)throw new AppError('invalid_input','Recompose must revise a layered image from the same creative set and idea version.');
+      this.read(projectId,previous.id);
+    }
     const dimensions=ratios[input.ratio];if(!dimensions)throw new AppError('invalid_input','Choose 1:1, 4:5, or 9:16.');
     const font=input.font??'Arial';if(!['Arial','Georgia'].includes(font))throw new AppError('missing_font','This template supports installed Arial or Georgia.');
     const fontPath=path.join(process.env.WINDIR??'C:\\Windows','Fonts',font==='Arial'?'arial.ttf':'georgia.ttf');
@@ -80,7 +85,7 @@ export class AssetService {
     layers.push({input:logoLayer,left:margin,top:height-104});
     if(cta){const ctaLayer=await sharp({text:{text:escaped(cta),font:`${font} 28`,fontfile:fontPath,width:width-2*margin-240,rgba:true,dpi:72}}).png().toBuffer({resolveWithObject:true});if(ctaLayer.info.height>72)throw new AppError('text_overflow','The CTA does not fit. Shorten it before composing.');layers.push({input:ctaLayer.data,left:304,top:height-100});}
     const bytes=await sharp({create:{width,height,channels:4,background:'#f8f5ed'}}).composite(layers).png().toBuffer();
-    return this.save(projectId,{bytes,width,height,inputHash:hash({visual:visual.artifactHash,logo:logo.artifactHash,headline,cta,font,ratio:input.ratio})},{name:optionalText(input.name,'Image name',160)||snapshot.concept.title,source:'Third Draft local composition',method:'layered',parentId:visual.id,setId:snapshot.setId,briefId:snapshot.briefId,conceptId:snapshot.conceptId,snapshot,caption:optionalText(input.caption,'Caption',8000)||snapshot.concept.body,style:snapshot.brief.style,composition:{template:'editorial-v1',ratio:input.ratio,visualId:visual.id,logoId:logo.id,headline,cta,font,fontHash:hash(readFileSync(fontPath)),layers:[{role:'headline',x:margin,y:margin},{role:'visual',x:margin,y:300,width:width-2*margin,height:visualHeight,fit:'contain'},{role:'logo',x:margin,y:height-104,width:180,height:72,fit:'contain'},{role:'cta',x:304,y:height-100}]},machineChecks:{decoded:true,dimensions:true,textFits:true,logoUncropped:true,fontAvailable:true}});
+    return this.save(projectId,{bytes,width,height,inputHash:hash({visual:visual.artifactHash,logo:logo.artifactHash,headline,cta,font,ratio:input.ratio,parentAssetId:previous?.id??null})},{name:optionalText(input.name,'Image name',160)||snapshot.concept.title,source:'Third Draft local composition',method:'layered',parentId:previous?.id??null,setId:snapshot.setId,briefId:snapshot.briefId,conceptId:snapshot.conceptId,snapshot,caption:optionalText(input.caption,'Caption',8000)||snapshot.concept.body,style:snapshot.brief.style,composition:{template:'editorial-v1',ratio:input.ratio,visualId:visual.id,logoId:logo.id,headline,cta,font,fontHash:hash(readFileSync(fontPath)),layers:[{role:'headline',x:margin,y:margin},{role:'visual',x:margin,y:300,width:width-2*margin,height:visualHeight,fit:'contain'},{role:'logo',x:margin,y:height-104,width:180,height:72,fit:'contain'},{role:'cta',x:304,y:height-100}]},machineChecks:{decoded:true,dimensions:true,textFits:true,logoUncropped:true,fontAvailable:true}});
   }
   reviewContext(projectId,assetId){
     const asset=this.store.record('assets',projectId,assetId);this.read(projectId,assetId);
@@ -98,12 +103,12 @@ export class AssetService {
   resolve(projectId,reviewId,input){
     this.store.assertWritable(projectId);const review=this.store.record('reviews',projectId,reviewId);if(!review.issues.some(i=>i.id===input.issueId))throw new AppError('not_found','This review issue was not found.',404);
     const record={id:id(),targetType:'asset',targetId:review.assetId,decision:'issue_resolved',reviewId,issueId:input.issueId,reason:text(input.reason,'Resolution explanation',1500),createdAt:now(),createdBy:'user'};
-    this.store.db.prepare('INSERT INTO selections VALUES (?,?,?,?,?)').run(record.id,projectId,null,review.assetId,JSON.stringify(record));return record;
+    this.store.db.prepare('INSERT INTO selections VALUES (?,?,?,?,?,?)').run(record.id,projectId,null,review.assetId,JSON.stringify(record),null);return record;
   }
   adopt(projectId,input){if(input.targetType==='asset'&&input.decision==='adopted'){const issues=this.adoptionIssues(projectId,input.targetId);if(issues.length)throw new AppError('adoption_blocked',issues.map(i=>i.message??i.explanation).join(' '),409);}return this.store.select(projectId,input);}
   export(projectId,setId,{draft=false}={}){
     const set=this.store.record('sets',projectId,setId),assets=this.store.rows('assets',projectId).filter(a=>a.setId===setId),selections=this.store.rows('selections',projectId),files={},items=[];
-    for(const asset of assets){const selected=selections.filter(s=>s.targetId===asset.id&&['adopted','rejected'].includes(s.decision)).at(-1)?.decision==='adopted';if(!draft&&!selected)continue;if(!draft&&this.adoptionIssues(projectId,asset.id).length)throw new AppError('stale_delivery','An adopted image now needs another review. Use a draft export or resolve its current issues.',409);const stem=asset.id;files[`${stem}.png`]=new Uint8Array(this.read(projectId,asset.id));files[`${stem}.txt`]=strToU8(asset.caption??'');items.push({id:asset.id,parentId:asset.parentId??null,image:`${stem}.png`,caption:`${stem}.txt`,imageHash:asset.artifactHash,captionHash:hash(asset.caption??''),width:asset.width,height:asset.height,method:asset.method,conceptId:asset.conceptId,briefId:asset.briefId});}
+    for(const asset of assets){const selected=selections.filter(s=>s.targetId===asset.id&&['adopted','rejected'].includes(s.decision)).at(-1)?.decision==='adopted';if(!draft&&!selected)continue;if(!draft&&this.adoptionIssues(projectId,asset.id).length)throw new AppError('stale_delivery','An adopted image now needs another review. Use a draft export or resolve its current issues.',409);const stem=asset.id;files[`${stem}.png`]=new Uint8Array(this.read(projectId,asset.id));files[`${stem}.txt`]=strToU8(asset.caption??'');items.push({id:asset.id,parentId:this.store.assetLineage(projectId,asset).parentAssetVersionId,dependencyAssetIds:this.store.assetLineage(projectId,asset).dependencyAssetIds,image:`${stem}.png`,caption:`${stem}.txt`,imageHash:asset.artifactHash,captionHash:hash(asset.caption??''),width:asset.width,height:asset.height,method:asset.method,conceptId:asset.conceptId,briefId:asset.briefId});}
     if(!items.length)throw new AppError('empty_export',draft?'This set has no images to export.':'Adopt at least one reviewed image before final export.');
     files['manifest.json']=strToU8(JSON.stringify({schemaVersion:1,kind:draft?'draft_delivery':'final_delivery',set:{id:set.id,name:set.name,mode:set.mode},exportedAt:now(),assets:items},null,2));return Buffer.from(zipSync(files,{level:0}));
   }

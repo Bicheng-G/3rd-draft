@@ -50,20 +50,50 @@ export function buildContext(store, projectId, input) {
   const imageIds=[...new Set([asset?.id,...(taskType==='extract_brand'?[]:brief?.assetIds??[])].filter(Boolean))];
   if(imageIds.length>8)throw new AppError('context_limit','Use at most 8 images including the review target.');
   for(const assetId of imageIds.filter(ref=>ref!==asset?.id)){const reference=store.record('assets',projectId,assetId);add(reference,'reference_asset','Image explicitly selected in the current brief.',JSON.stringify({id:reference.id,name:reference.name,source:reference.source,role:reference.role,artifactHash:reference.artifactHash}));}
-  const requestedEvidence=input.evidenceIds??[];
-  if(!Array.isArray(requestedEvidence)||requestedEvidence.length>12)throw new AppError('invalid_input','Select at most 12 evidence versions.');
+  if(!Array.isArray(input.evidenceIds??[])||(input.evidenceIds??[]).length>12)throw new AppError('invalid_input','Select at most 12 evidence versions.');
+  const citedContext=['ideate','develop'].includes(taskType)?source?.creationContext:null;
+  const requestedEvidence=[...new Set([...(input.evidenceIds??[]),...(citedContext?.evidenceVersionIds??[])])];
+  if(requestedEvidence.length>12)throw new AppError('invalid_input','The selected task and idea may cite at most 12 evidence versions.');
   requestedEvidence.forEach(ref=>store.record('evidence',projectId,ref));
   if(taskType==='synthesize_insights'&&!requestedEvidence.length)throw new AppError('invalid_input','Select evidence before synthesizing an insight.');
   const evidenceToInclude=new Set(requestedEvidence);
   const latestInsights=new Map(state.insights.map(r=>[r.itemId,r]));
   const warnings=[];let insightCount=0;
-  if(source?.runId){const previousContext=store.record('runs',projectId,source.runId).context;const oldBrandIds=(previousContext?.entries??[]).filter(e=>e.kind==='confirmed_brand').map(e=>e.id).sort(),currentBrandIds=[...latestBrand.values()].map(e=>e.id).sort();if(JSON.stringify(oldBrandIds)!==JSON.stringify(currentBrandIds))warnings.push({id:source.id,code:'brand_context_changed',reason:'Confirmed brand facts have changed since this source idea was created. Check its old claims against the current facts before reuse.',oldBrandIds,currentBrandIds});}
+  const citedInsightIds=new Set(citedContext?.insightVersionIds??[]),citedInsightItems=new Set();
+  for(const ref of citedInsightIds){
+    const record=store.record('insights',projectId,ref);citedInsightItems.add(record.itemId);
+    add(record,'insight','Immutable insight version explicitly cited by the selected manual idea.',JSON.stringify(record));
+    record.evidenceIds.forEach(evidenceId=>evidenceToInclude.add(evidenceId));
+    const expired=record.evidenceIds.some(evidenceId=>{const evidence=store.record('evidence',projectId,evidenceId);return evidence.expiresAt&&Date.parse(evidence.expiresAt)<Date.now();});
+    if(expired)warnings.push({id:record.id,reason:'Evidence supporting this explicitly cited insight is past its expiry date; verify before reuse.'});
+  }
+  const ancestry=new Set(),ancestors=[],conceptsById=new Map(state.concepts.map(item=>[item.id,item]));
+  for(let c=source;c;){
+    if(ancestry.has(c.id))throw new AppError('invalid_lineage','The selected idea has cyclic ancestry. Restore a valid project backup before continuing.',409);
+    ancestry.add(c.id);ancestors.push(c);
+    const parent=c.parentId?conceptsById.get(c.parentId):null;
+    if(c.parentId&&!parent)throw new AppError('invalid_lineage','The selected idea has a missing ancestor. Restore a valid project backup before continuing.',409);
+    c=parent;
+  }
+  // A manual copy edit is not confirmation that inherited claims were checked.
+  // Inspect its recorded baseline and inherited context up to the model run that
+  // produced the source. Never invent missing historical manual context.
+  const currentBrandIds=[...latestBrand.values()].map(e=>e.id).sort();let hasCreationContext=false,missingSourceContext=false;
+  for(const ancestor of ancestors){
+    const previousContext=ancestor.runId?store.record('runs',projectId,ancestor.runId).context:null;
+    const baseline=previousContext?.entries?.filter(e=>e.kind==='confirmed_brand').map(e=>e.id)??ancestor.creationContext?.confirmedBrandVersionIds;
+    if(baseline){hasCreationContext=true;const oldBrandIds=[...baseline].sort();if(JSON.stringify(oldBrandIds)!==JSON.stringify(currentBrandIds)){warnings.push({id:source.id,sourceConceptId:ancestor.id,code:'brand_context_changed',reason:'Confirmed brand facts differ from this idea or its inherited source context. Check old claims against current facts before reuse.',oldBrandIds,currentBrandIds});break;}}
+    if(!baseline&&!ancestor.parentId)missingSourceContext=true;
+    if(ancestor.runId)break;
+  }
+  if(source&&(!hasCreationContext||missingSourceContext))warnings.push({id:source.id,code:'source_context_unavailable',reason:'This idea or an inherited historical source has no recorded creation context. Check its claims against the current confirmed facts before reuse.'});
   if(taskType!=='synthesize_insights')for(const {record,score:relevanceScore} of rank([...latestInsights.values()])) {
+    if(citedInsightItems.has(record.itemId))continue;
     const expired=record.evidenceIds.some(ref=>{const e=state.evidence.find(e=>e.id===ref);return e?.expiresAt&&Date.parse(e.expiresAt)<Date.now();});
     if(relevanceScore>0&&!expired&&insightCount<3){add(record,'insight','Relevant audience/topic; versioned insight, not a confirmed brand fact.',JSON.stringify(record));record.evidenceIds.forEach(ref=>evidenceToInclude.add(ref));insightCount++;}
     else omitted.push({id:record.id,reason:expired?'Supporting evidence is past its expiry date.':relevanceScore===0?'No audience/topic match.':'Insight limit (3).'});
   }
-  for(const record of state.insights.filter(r=>latestInsights.get(r.itemId)?.id!==r.id))omitted.push({id:record.id,reason:'A newer insight version exists; historical references are unchanged.'});
+  for(const record of state.insights.filter(r=>latestInsights.get(r.itemId)?.id!==r.id&&!citedInsightIds.has(r.id)))omitted.push({id:record.id,reason:'A newer insight version exists; historical references are unchanged.'});
   if(taskType!=='synthesize_insights'){
     const latestEvidence=new Map(state.evidence.map(r=>[r.itemId,r]));let extra=0;
     for(const {record,score:relevance} of rank([...latestEvidence.values()])){if(evidenceToInclude.has(record.id))continue;const expired=record.expiresAt&&Date.parse(record.expiresAt)<Date.now();if(relevance>0&&!expired&&extra<3){evidenceToInclude.add(record.id);extra++;}else omitted.push({id:record.id,reason:expired?'Evidence is past its expiry date.':relevance===0?'Evidence has no topic match.':'Additional evidence limit (3).'});}
@@ -85,14 +115,6 @@ export function buildContext(store, projectId, input) {
   for(const {record,score:relevance} of rank(state.concepts.filter(c=>c.id!==source?.id&&!c.archived))) {
     if(relevance>0&&conceptCount<2) { add(record,'related_concept','A historical idea matching the goal; creative reference, not a fact.',conceptText(record));conceptCount++; }
     else omitted.push({id:record.id,reason:relevance===0?'Historical idea has no topic match with the goal.':'Historical idea limit (2).'});
-  }
-  const ancestry=new Set(),conceptsById=new Map(state.concepts.map(item=>[item.id,item]));
-  for(let c=source;c;){
-    if(ancestry.has(c.id))throw new AppError('invalid_lineage','The selected idea has cyclic ancestry. Restore a valid project backup before continuing.',409);
-    ancestry.add(c.id);
-    const parent=c.parentId?conceptsById.get(c.parentId):null;
-    if(c.parentId&&!parent)throw new AppError('invalid_lineage','The selected idea has a missing ancestor. Restore a valid project backup before continuing.',409);
-    c=parent;
   }
   let feedbackCount=0;
   // Most recent applicable feedback wins attention; older conflicting records remain inspectable.

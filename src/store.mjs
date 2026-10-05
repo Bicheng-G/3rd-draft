@@ -21,7 +21,7 @@ export class Store {
     mkdirSync(this.dataDir, { recursive: true });
     const dbPath = this.safePath('workbench.sqlite');
     this.db = new DatabaseSync(dbPath);
-    if(this.db.prepare('PRAGMA user_version').get().user_version>2){this.db.close();throw new Error('This data directory requires a newer Third Draft version.');}
+    if(this.db.prepare('PRAGMA user_version').get().user_version>3){this.db.close();throw new Error('This data directory requires a newer Third Draft version.');}
     const version=this.db.prepare('PRAGMA user_version').get().user_version;
     this.db.exec(`PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout=5000;
       CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, created_at TEXT NOT NULL);
@@ -36,6 +36,21 @@ export class Store {
       CREATE INDEX IF NOT EXISTS runs_project ON runs(project_id);
       `);
     if(version<2) this.migrateV1();
+    if(version<3) this.migrateV2();
+  }
+  migrateV2() {
+    // Existing unscoped decisions retain their original payload. They are not
+    // evidence that the user chose this version for any particular set.
+    this.transaction(()=>this.db.exec(`
+      CREATE TABLE selections_v3 (id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id), concept_id TEXT, asset_id TEXT, payload TEXT NOT NULL, set_id TEXT,
+        CHECK((concept_id IS NULL)!=(asset_id IS NULL)), CHECK(set_id IS NULL OR concept_id IS NOT NULL),
+        FOREIGN KEY(project_id,concept_id) REFERENCES concepts(project_id,id), FOREIGN KEY(project_id,asset_id) REFERENCES assets(project_id,id),
+        FOREIGN KEY(project_id,set_id,concept_id) REFERENCES set_concepts(project_id,set_id,concept_id));
+      INSERT INTO selections_v3 SELECT id,project_id,concept_id,asset_id,payload,NULL FROM selections;
+      DROP TABLE selections;
+      ALTER TABLE selections_v3 RENAME TO selections;
+      PRAGMA user_version=3;
+    `));
   }
   migrateV1() {
     // SQLite cannot drop a UNIQUE constraint in place. Copy without modifying payloads.
@@ -105,7 +120,7 @@ export class Store {
     const favorites = new Map(this.db.prepare('SELECT concept_id,reason FROM favorites WHERE project_id=? AND active=1').all(projectId).map(r => [r.concept_id,r.reason]));
     const briefs=this.rows('briefs',projectId);
     const selections=this.rows('selections',projectId),ideaState=new Map(selections.filter(s=>['archived','unarchived'].includes(s.decision)).map(s=>[s.ideaId,s.decision==='archived']));
-    return { project, knowledge: this.rows('knowledge', projectId), concepts: this.rows('concepts', projectId).map(c => ({ ...c, favorite: favorites.has(c.id),favoriteReason:favorites.get(c.id)??null,archived:ideaState.get(c.ideaId)??false })), feedback: [...this.rows('feedback', projectId),...this.rows('scoped_feedback',projectId)], runs: this.rows('runs', projectId).map(({ pendingOutput, ...run }) => run), evidence:this.rows('evidence',projectId),insights:this.rows('insights',projectId),sets:this.rows('sets',projectId).map(s=>({...s,currentBriefId:briefs.filter(b=>b.setId===s.id).at(-1)?.id??null,conceptIds:this.setConcepts(projectId,s.id)})),briefs,assets:this.rows('assets',projectId),reviews:this.rows('reviews',projectId),selections };
+    return { project, knowledge: this.rows('knowledge', projectId), concepts: this.rows('concepts', projectId).map(c => ({ ...c, favorite: favorites.has(c.id),favoriteReason:favorites.get(c.id)??null,archived:ideaState.get(c.ideaId)??false })), feedback: [...this.rows('feedback', projectId),...this.rows('scoped_feedback',projectId)], runs: this.rows('runs', projectId).map(({ pendingOutput, ...run }) => run), evidence:this.rows('evidence',projectId),insights:this.rows('insights',projectId),sets:this.rows('sets',projectId).map(s=>({...s,currentBriefId:briefs.filter(b=>b.setId===s.id).at(-1)?.id??null,conceptIds:this.setConcepts(projectId,s.id),conceptSelections:this.setConceptSelections(projectId,s.id,selections)})),briefs,assets:this.rows('assets',projectId).map(a=>({...a,lineage:this.assetLineage(projectId,a)})),reviews:this.rows('reviews',projectId),selections };
   }
   addKnowledge(projectId, input) {
     this.assertWritable(projectId);
@@ -177,6 +192,14 @@ export class Store {
     this.transaction(()=>{this.db.prepare('INSERT INTO insights VALUES (?,?,?,?,?)').run(record.id,projectId,record.itemId,record.previousId,JSON.stringify(record));for(const ref of evidenceIds)this.db.prepare('INSERT INTO insight_evidence VALUES (?,?,?)').run(projectId,record.id,ref);});return record;
   }
   setConcepts(projectId,setId) {return this.db.prepare('SELECT concept_id FROM set_concepts WHERE project_id=? AND set_id=? ORDER BY rowid').all(projectId,setId).map(r=>r.concept_id);}
+  setConceptSelections(projectId,setId,selections=this.rows('selections',projectId)) {
+    return this.setConcepts(projectId,setId).map(conceptId=>{const selected=selections.filter(s=>s.targetType==='concept'&&s.targetId===conceptId&&s.setId===setId&&['adopted','rejected'].includes(s.decision)).at(-1);return {conceptId,decision:selected?.decision??null,reason:selected?.reason??null,selectionId:selected?.id??null};});
+  }
+  assetLineage(projectId,asset) {
+    const dependencyAssetIds=this.db.prepare('SELECT reference_id FROM asset_links WHERE project_id=? AND asset_id=? ORDER BY reference_id').all(projectId,asset.id).map(r=>r.reference_id);
+    const legacyCompositionDependency=asset.schemaVersion<3&&asset.method==='layered'&&asset.change!=='caption_only'&&asset.parentId===asset.composition?.visualId;
+    return {parentAssetVersionId:legacyCompositionDependency?null:asset.parentId??null,dependencyAssetIds,...(legacyCompositionDependency?{legacyParentId:asset.parentId,legacyParentMeaning:'composition_dependency'}:{})};
+  }
   writableSet(projectId,setId){const set=this.record('sets',projectId,setId);if(set.archived)throw new AppError('set_archived','Unarchive this creative set before making changes.',409);return set;}
   archiveSet(projectId,setId,archived){this.assertWritable(projectId);const set=this.record('sets',projectId,setId);if(typeof archived!=='boolean')throw new AppError('invalid_input','Archived must be true or false.');set.archived=archived;this.db.prepare('UPDATE sets SET payload=? WHERE project_id=? AND id=?').run(JSON.stringify(set),projectId,setId);return set;}
   addSetConcepts(projectId,setId,input) {
@@ -205,14 +228,21 @@ export class Store {
     this.assertWritable(projectId);const parent=input.parentId?this.record('concepts',projectId,input.parentId):null;
     const fields={};for(const name of ['title','angle','body','visualDirection','rationale'])fields[name]=text(input[name],name,name==='title'?160:8000);
     if(!Array.isArray(input.assumptions??[])||(input.assumptions??[]).some(s=>typeof s!=='string'||s.length>2000)||(input.assumptions??[]).length>40)throw new AppError('invalid_input','Invalid creative assumptions.');
-    const concept={...fields,theme:optionalText(input.theme,'Theme',200),insight:optionalText(input.insight,'Insight',2000),assumptions:input.assumptions??[],usedContextIds:[],id:id(),ideaId:parent?.ideaId??id(),parentId:parent?.id??null,runId:null,createdAt:now(),createdBy:'user',schemaVersion:2};
+    const insightVersionIds=ids(input.insightVersionIds??[],'Insight versions',12),evidenceVersionIds=ids(input.evidenceVersionIds??[],'Evidence versions',12);
+    insightVersionIds.forEach(ref=>this.record('insights',projectId,ref));evidenceVersionIds.forEach(ref=>this.record('evidence',projectId,ref));
+    const createdAt=now(),confirmedBrandVersionIds=[...new Map(this.rows('knowledge',projectId).filter(k=>k.kind==='brand'&&k.status==='confirmed').map(k=>[k.itemId,k.id])).values()];
+    const creationContext={capturedAt:createdAt,goal:optionalText(input.goal,'Creation goal',2000),confirmedBrandVersionIds,insightVersionIds,evidenceVersionIds,meaning:'Project fact baseline at save time; only listed insight/evidence versions were explicitly cited. This does not assert that all facts were used.'};
+    const concept={...fields,theme:optionalText(input.theme,'Theme',200),insight:optionalText(input.insight,'Insight',2000),assumptions:input.assumptions??[],usedContextIds:[...insightVersionIds,...evidenceVersionIds],id:id(),ideaId:parent?.ideaId??id(),parentId:parent?.id??null,runId:null,createdAt,createdBy:'user',schemaVersion:3,provenance:{kind:parent?'manual_revision':'manual',sourceConceptId:parent?.id??null},creationContext};
     const archived=this.writeConcept(projectId,concept);this.db.prepare('INSERT INTO concepts VALUES (?,?,?,?,?)').run(archived.id,projectId,null,archived.parentId,JSON.stringify(archived));return archived;
   }
   select(projectId,input) {
     this.assertWritable(projectId);if(!['concept','asset'].includes(input.targetType)||!['adopted','rejected','published','unpublished','archived','unarchived'].includes(input.decision)||input.targetType==='asset'&&['archived','unarchived'].includes(input.decision))throw new AppError('invalid_input','Invalid selection.');
     const target=this.record(input.targetType==='concept'?'concepts':'assets',projectId,input.targetId);
-    const record={id:id(),targetId:input.targetId,targetType:input.targetType,decision:input.decision,reason:optionalText(input.reason,'Selection reason',1500),createdAt:now(),createdBy:'user',...(['archived','unarchived'].includes(input.decision)?{ideaId:target.ideaId}:{})};
-    this.db.prepare('INSERT INTO selections VALUES (?,?,?,?,?)').run(record.id,projectId,input.targetType==='concept'?input.targetId:null,input.targetType==='asset'?input.targetId:null,JSON.stringify(record));return record;
+    const scoped=input.targetType==='concept'&&['adopted','rejected'].includes(input.decision);
+    if(scoped){if(!input.setId)throw new AppError('invalid_input','Choose the creative set for this idea decision.');this.writableSet(projectId,input.setId);if(!this.setConcepts(projectId,input.setId).includes(target.id))throw new AppError('invalid_input','Add this idea version to the set before recording a decision.');}
+    else if(input.setId)throw new AppError('invalid_input','This decision does not accept a creative set scope.');
+    const record={id:id(),targetId:input.targetId,targetType:input.targetType,decision:input.decision,reason:optionalText(input.reason,'Selection reason',1500),createdAt:now(),createdBy:'user',...(scoped?{setId:input.setId}:{}),...(['archived','unarchived'].includes(input.decision)?{ideaId:target.ideaId}:{})};
+    this.db.prepare('INSERT INTO selections VALUES (?,?,?,?,?,?)').run(record.id,projectId,input.targetType==='concept'?input.targetId:null,input.targetType==='asset'?input.targetId:null,JSON.stringify(record),scoped?input.setId:null);return record;
   }
   setting(name,value) {if(value===undefined){const row=this.db.prepare('SELECT payload FROM settings WHERE name=?').get(name);return row?JSON.parse(row.payload):null;}this.db.prepare('INSERT INTO settings VALUES (?,?) ON CONFLICT(name) DO UPDATE SET payload=excluded.payload').run(name,JSON.stringify(value));return value;}
   insertRun(projectId, run) {

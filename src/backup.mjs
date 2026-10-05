@@ -27,7 +27,7 @@ export const BACKUP_TABLES = Object.freeze({
   knowledge_assets: ['project_id', 'knowledge_id', 'asset_id'],
   asset_links: ['project_id', 'asset_id', 'reference_id'],
   reviews: ['id', 'project_id', 'asset_id', 'payload'],
-  selections: ['id', 'project_id', 'concept_id', 'asset_id', 'payload'],
+  selections: ['id', 'project_id', 'concept_id', 'asset_id', 'payload', 'set_id'],
   scoped_feedback: ['id', 'project_id', 'concept_id', 'asset_id', 'set_id', 'payload'],
   skill_packages: ['id', 'payload'],
   project_skills: ['project_id', 'skill_id', 'enabled'],
@@ -50,7 +50,7 @@ const foreignKeys = {
   assets: { parent_id: 'assets', run_id: 'runs', set_id: 'sets', concept_id: 'concepts', brief_id: 'briefs' },
   brief_assets: { brief_id: 'briefs', asset_id: 'assets' }, reviews: { asset_id: 'assets' },
   knowledge_assets: { knowledge_id: 'knowledge', asset_id: 'assets' }, asset_links: { asset_id: 'assets', reference_id: 'assets' },
-  selections: { concept_id: 'concepts', asset_id: 'assets' },
+  selections: { concept_id: 'concepts', asset_id: 'assets', set_id: 'sets' },
   scoped_feedback: { concept_id: 'concepts', asset_id: 'assets', set_id: 'sets' }, project_skills: { skill_id: 'skill_packages' },
 };
 const payloadReferences = {
@@ -59,6 +59,7 @@ const payloadReferences = {
   assetId: 'assets', assetIds: 'assets', referenceAssetIds: 'assets', referenceAssetVersionIds: 'assets',
   evidenceId: 'evidence', evidenceIds: 'evidence', evidenceVersionIds: 'evidence',
   insightId: 'insights', insightIds: 'insights', insightVersionIds: 'insights',
+  confirmedBrandVersionIds: 'knowledge',
   visualId: 'assets', logoId: 'assets', reviewId: 'reviews',
 };
 function archivePath(value) {
@@ -96,12 +97,12 @@ function parseJson(bytes, name) {
   catch { fail('invalid_backup', `${name} is not valid UTF-8 JSON.`); }
 }
 function assertSchema(store) {
-  if (store.db.prepare('PRAGMA user_version').get().user_version !== 2) fail('unsupported_backup_schema', 'Only database schema 2 is supported by this backup format.');
+  if (store.db.prepare('PRAGMA user_version').get().user_version !== 3) fail('unsupported_backup_schema', 'Only database schema 3 can be exported by this version.');
   const actual = store.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all().map(row => row.name);
   if (actual.some(name => !tableNames.includes(name) && name !== 'settings')) fail('unsupported_backup_schema', 'The database has tables this backup format does not preserve.');
   for (const [table, columns] of Object.entries(BACKUP_TABLES)) {
     const actualColumns = store.db.prepare(`PRAGMA table_info(${table})`).all().map(column => column.name);
-    if (actualColumns.length !== columns.length || columns.some(column => !actualColumns.includes(column))) fail('unsupported_backup_schema', `The ${table} table does not match backup schema 2.`);
+    if (actualColumns.length !== columns.length || columns.some(column => !actualColumns.includes(column))) fail('unsupported_backup_schema', `The ${table} table does not match backup schema 3.`);
   }
 }
 function usedSkills(value, found = new Set(), depth = 0) {
@@ -160,7 +161,7 @@ function validateRecords(records, projectId) {
     if (rowCount > BACKUP_LIMITS.rows) fail('backup_limit', 'A project backup may contain at most 10,000 rows.');
     ids[table] = new Set(); const unique = new Set();
     for (const row of records[table]) {
-      if (!exactKeys(row, columns)) fail('invalid_backup', `The ${table} columns do not match backup schema 2.`);
+      if (!exactKeys(row, columns)) fail('invalid_backup', `The ${table} columns do not match backup schema 3.`);
       for (const column of columns) {
         const value = row[column];
         if (integerColumns.has(column)) { if (value !== 0 && value !== 1) fail('invalid_backup', `${table}.${column} must be 0 or 1.`); }
@@ -185,10 +186,12 @@ function validateRecords(records, projectId) {
     for (const [column, target] of Object.entries(foreignKeys[table] ?? {})) if (row[column] !== null && !ids[target].has(row[column]))
       fail('invalid_backup', `The ${table}.${column} reference is missing or belongs to another project.`);
     if (['selections', 'scoped_feedback'].includes(table) && (row.concept_id === null) === (row.asset_id === null)) fail('invalid_backup', `${table} must target exactly one concept or asset.`);
+    if (table === 'selections' && row.set_id !== null && !records.set_concepts.some(link => link.set_id === row.set_id && link.concept_id === row.concept_id)) fail('invalid_backup', 'A set decision requires the matching concept membership.');
     if (table === 'runs' && activeStatuses.has(row.status)) fail('backup_busy', 'Wait for running tasks and pending archival to finish before exporting or restoring.', 409);
     if (row.payload !== undefined) {
       const payload = parseJson(Buffer.from(row.payload), `${table} payload`);
       if (!object(payload) || payload.id !== row.id) fail('invalid_backup', `${table} payload identity does not match its row.`);
+      if(table==='selections'&&(payload.setId??null)!==row.set_id)fail('invalid_backup','The selection payload set scope conflicts with its row.');
       validatePayload(payload, projectId, ids);
       for (const [column, key] of Object.entries({ item_id: 'itemId', previous_id: 'previousId', parent_id: 'parentId', run_id: 'runId', set_id: 'setId', brief_id: 'briefId', request_id: 'requestId', request_hash: 'requestHash', status: 'status' }))
         if (row[column] !== undefined && Object.hasOwn(payload, key) && payload[key] !== row[column]) fail('invalid_backup', `${table}.${key} conflicts with its row.`);
@@ -261,7 +264,7 @@ export function exportProject(store, skillLibrary, projectId) {
     const recordBytes = Buffer.from(JSON.stringify(records));
     if (recordBytes.length > BACKUP_LIMITS.entryBytes || total + recordBytes.length > BACKUP_LIMITS.bytes) fail('backup_limit', 'The project records exceed the backup size limit.');
     entries['records.json'] = recordBytes;
-    manifest = { format: 'third-draft-private-project', archiveVersion: 1, schemaVersion: 2, projectId, createdAt: now(),
+    manifest = { format: 'third-draft-private-project', archiveVersion: 1, schemaVersion: 3, projectId, createdAt: now(),
       counts: Object.fromEntries(tableNames.map(table => [table, records[table].length])),
       records: { path: 'records.json', bytes: recordBytes.length, hash: hash(recordBytes) }, files };
     entries['manifest.json'] = Buffer.from(JSON.stringify(manifest));
@@ -330,11 +333,15 @@ function inspectZip(buffer) {
 }
 function validateArchive(buffer) {
   const entries = inspectZip(buffer), manifest = parseJson(entries['manifest.json'], 'Manifest');
-  if (!exactKeys(manifest, ['format', 'archiveVersion', 'schemaVersion', 'projectId', 'createdAt', 'counts', 'records', 'files']) || manifest.format !== 'third-draft-private-project' || manifest.archiveVersion !== 1 || manifest.schemaVersion !== 2 || !Array.isArray(manifest.files))
+  if (!exactKeys(manifest, ['format', 'archiveVersion', 'schemaVersion', 'projectId', 'createdAt', 'counts', 'records', 'files']) || manifest.format !== 'third-draft-private-project' || manifest.archiveVersion !== 1 || ![2,3].includes(manifest.schemaVersion) || !Array.isArray(manifest.files))
     fail('unsupported_backup_schema', 'This backup format or schema is not supported.');
   const recordInfo = manifest.records;
   if (!exactKeys(recordInfo, ['path', 'bytes', 'hash']) || recordInfo.path !== 'records.json' || recordInfo.bytes !== entries['records.json'].length || recordInfo.hash !== hash(entries['records.json'])) fail('invalid_backup', 'The backup records failed their hash check.');
   const records = parseJson(entries['records.json'], 'Records');
+  if(manifest.schemaVersion===2){
+    if(!Array.isArray(records?.selections))fail('invalid_backup','The historical decision records are invalid.');
+    for(const row of records.selections){if(!exactKeys(row,BACKUP_TABLES.selections.filter(key=>key!=='set_id')))fail('invalid_backup','The historical selection columns are invalid.');row.set_id=null;}
+  }
   validateRecords(records, manifest.projectId);
   if (!exactKeys(manifest.counts, tableNames) || tableNames.some(table => manifest.counts[table] !== records[table].length)) fail('invalid_backup', 'Backup row counts do not match the manifest.');
   const required = expectedFiles(records, manifest.projectId), seen = new Set();
@@ -385,7 +392,7 @@ export function restoreProject(buffer, destinationDir) {
       for (const record of validated.records.skill_packages) library.package(record.id, true);
     });
     return { projectId: validated.manifest.projectId, name: validated.records.projects[0].name,
-      archived: Boolean(validated.records.projects[0].archived), destinationDir: destination, schemaVersion: 2,
+      archived: Boolean(validated.records.projects[0].archived), destinationDir: destination, schemaVersion: 3,
       counts: validated.manifest.counts, fileCount: validated.manifest.files.length };
   } catch (error) {
     if (error instanceof AppError) throw error;

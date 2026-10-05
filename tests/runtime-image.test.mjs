@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CodexImageRuntime } from '../src/runtime-image.mjs';
-import { SUPPORTED_CODEX_VERSION } from '../src/runtime.mjs';
+import { HISTORICAL_CODEX_VERSION } from '../src/runtime.mjs';
 
 test('healthy native text authentication never implies accepted image capability', async () => {
   let inspections = 0;
   const runtime = new CodexImageRuntime({ nativeRuntime: {
-    async inspect() { inspections++; return { available: true, version: SUPPORTED_CODEX_VERSION, reason: null }; },
+    async inspect() { inspections++; return { available: true, version: HISTORICAL_CODEX_VERSION, reason: null }; },
     async generate() { assert.fail('Image status must not submit a native request.'); },
   } });
   const status = await runtime.inspect();
@@ -19,7 +19,10 @@ test('healthy native text authentication never implies accepted image capability
   assert.equal(status.evidence.liveImageAttempts, 0);
   assert.equal(status.evidence.acceptedNativeImageProbes, 0);
   assert.equal(status.evidence.publicSourceMatchesBinary, 'not-established');
-  assert.deepEqual(status.blockers.map(item => item.code), ['image_call_budget_unenforced', 'reference_read_isolation_unverified']);
+  assert.deepEqual(status.blockers.map(item => item.code), ['image_call_budget_unenforced', 'reference_read_isolation_failed']);
+  assert.equal(status.evidence.observedCliVersion, '0.160.0');
+  assert.equal(status.evidence.observedImageOperationsInOneTurn, 2);
+  assert.equal(status.evidence.unapprovedReferenceRead, true);
 });
 
 test('generate, edit, and reference requests fail before touching the native runtime or files', async () => {
