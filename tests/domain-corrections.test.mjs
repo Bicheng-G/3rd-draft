@@ -69,7 +69,7 @@ test('composition dependencies are distinct from previous image versions and bac
   const {store,dir,project,other,assets}=fixture(t),concept=store.addConcept(project.id,idea),set=createSet(store,project,concept,'Images');
   const bytes=await sharp({create:{width:30,height:20,channels:4,background:'#357'}}).png().toBuffer();
   const visual=await assets.import(project.id,{name:'Visual',source:'Synthetic',base64:bytes.toString('base64')}),logo=await assets.import(project.id,{name:'Logo',source:'Synthetic',base64:bytes.toString('base64'),role:'logo'});
-  const composed=await assets.compose(project.id,{setId:set.id,conceptId:concept.id,visualId:visual.id,logoId:logo.id,headline:'Read a page',ratio:'1:1'});
+  assets.designateLogo(project.id,logo.id);const composed=await assets.compose(project.id,{setId:set.id,conceptId:concept.id,visualId:visual.id,logoId:logo.id,headline:'Read a page',ratio:'1:1'});
   assert.equal(composed.parentId,null);
   const originalBytes=assets.read(project.id,composed.id),edit=await assets.caption(project.id,composed.id,{caption:'Another quiet page.'});
   assert.equal(edit.parentId,composed.id);assert.deepEqual(assets.read(project.id,composed.id),originalBytes);

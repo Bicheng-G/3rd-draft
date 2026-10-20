@@ -1,10 +1,47 @@
 # V1 — 实现差距与验证记录
 
-**当前结论：FEASIBLE — 最小原生 Generate → 不可变 AssetVersion → 指令 Edit → 新 AssetVersion / Project Memory 已通过，停止供 dogfooding。** 完整 V1 尚未验收。产品负责人接受 native Skill 为 best effort；下方严格 Skill / 单次操作 / selected-reference-only 的 BLOCKED 记录仅为历史，不能作为当前 gate。
+**当前结论：正式 logo 功能已实现并经真实 RidePass 生成/编辑及备份恢复验证，作品待用户采用；完整 V1 尚未验收。** 最小原生制作与 v0.1 记忆闭环的历史通过继续有效。产品负责人接受 native Skill 为 best effort；下方严格 Skill / 单次操作 / selected-reference-only 的 BLOCKED 记录仅为历史，不能作为当前 gate。
 
-2026-10-05 后继任务仅做 v0.1 最终验收，RidePass 实际项目 dogfood 结论 **PASS WITH NON-BLOCKING LIMITATIONS**：保存的图片判断经重启后独立构思复用，影响新文案/视觉方向/归档图片，新增 2 次文字与 2 次图片均成功，132 项回归通过，无产品代码修复。六项关闭标准、原生证据复用与剩余限制见 [v0.1 最终记录](validation-v0.1.md#ridepass-最终-dogfood2026-10-05)。该结果不关闭本页完整 V1 的质量/用户采用/发布门槛，本轮不继续 V1。
+历史 2026-10-05 后继任务仅做 v0.1 最终验收，RidePass 实际项目 dogfood 结论 **PASS WITH NON-BLOCKING LIMITATIONS**：保存的图片判断经重启后独立构思复用，影响新文案/视觉方向/归档图片，新增 2 次文字与 2 次图片均成功，132 项回归通过，无产品代码修复。六项关闭标准、原生证据复用与剩余限制见 [v0.1 最终记录](validation-v0.1.md#ridepass-最终-dogfood2026-10-05)。该结果不关闭本页完整 V1 的质量/用户采用/发布门槛；2026-10-20 用户另行授权推进下述工作。
+
+## 正式 logo 与 RidePass 工作流（2026-10-20）
+
+先将既有四份需求/差距文档提交为 `0878ddd9360fab0c8e20b8734b1d85340cbbb3ef` 并推送 `origin/codex/production-loop-feasibility`，再实施本节功能。用户提供本地正式 logo；原始素材、运行项目、备份、截图、会话和验收报告都留在忽略的 `.workbench/`，不加入 Git。
+
+### 功能及工程验证
+
+FR-02/07/08/09、B-04/07/09：从上传的 Logo 资产明确指定项目正式版本；无 logo 时在 runtime inspection 前阻止制作。制作快照锁定 logo id/hash；原生模型生成/编辑无品牌底图，应用按比例、不裁切地合成真实 logo。底图与成品分别不可变归档，后续编辑只读底图并重新合成当前标识。模板使用同一选择；caption 新版复用底图 owner。更换 logo 后旧版本保留，但不能作为当前最终交付。缺失底图的历史原生资产不能直接 Edit，仍可查看及导出草稿。人工采用须检查额外/虚构标识；实现不声称机器已经检测所有假 logo。架构取舍见 ADR-018。
+
+`npm test` **140/140 PASS，0 fail / 0 skip**，18.470 秒（`.workbench/brand-logo-regression-final.log`）。新增覆盖缺失/外项目 logo、在途选择冻结、像素与编辑输入、caption 来源、备份恢复、损坏底图、人工品牌检查与 logo 变更后的交付阻止，以及 Review 的正式 logo 输入。原有生产预算/恢复/隔离回归继续通过。初次受限宿主运行有 junction EPERM 和 loopback fetch 拒绝，未作为产品通过证据；在正常宿主权限下完成全套。
+
+### 实际运行与恢复
+
+本次实际 Codex **0.163.0-alpha.10.2**，可执行文件 SHA-256 `f6dbf48cb70f62649c645f26c87dc9bf84cc36986202dfad8e12fb5b8ca70312`；基本契约 6 和独立图片有界探针通过后，复用应用独立 ChatGPT profile。共 **2 次真实图片 Action + 2 次文字 Review**，全部成功；每项图片 Action 各 1 次派发，没有重抽图片或切换 API。日志来自应用运行元数据，不是账单/额度审计。
+
+在既有 RidePass 的 Midweek Organic set 中导入并指定正式 logo，Generate 新版后以“只把黑色包改为棕色”为指令 Edit。两张成品都是 1254×1254，正式 logo 占 501×123；逐张提取该区域与正式素材确定性缩放结果比较，**61,623 像素全部一致**。编辑 parent 指向本轮第一版，输入是其无品牌底图；旧项目记录与旧图文件哈希保持不变。视觉检查确认包颜色变化及主体/场景大体保留，不声称非目标区域逐像素不变。
+
+| 证据 | 值 / 结果 |
+|---|---|
+| 正式 logo 归档 hash | `c6281dfca76e21deda26bfb379ad586851388a660727e26bf54af6910917f0ca` |
+| 最终编辑图 hash | `20d483bfa12128b18c819de96839043dfbc54495fba87a74a891176cc477ec24` |
+| 最终私有备份 | 18,427,445 bytes；`d2a6b9e65df8eab800e29e5331db589d62994051d5c2935634d663a7c8fa4bb8` |
+| 新目录恢复 | 完整项目 snapshot（含 Skill bindings）一致；底图/成品哈希和正式 logo 选择均一致，无 provider 调用 |
+| 草稿 ZIP | 三个图版本及对应文案、manifest；无底图或 runtime；`e346eb17f2528d03774a44e9b36874247032f178910ad7698f0b2c0c1b3286d0` |
+| 私有证据入口 | `.workbench/brand-logo-live/verified.json`；`before.json` / `after.json` / `after.tdbackup` / `studio.png` |
+
+实测发现并修复两个具体缺陷：备份将 runtime 探针的 SHA-256 `evidenceId` 误作研究 UUID，现只在两个明确的 runtime 字段路径使用 hash 校验，研究证据引用约束保留（先复现失败再通过回归）；首次 Review 未自动收到作品使用的正式 logo，现显式传入该版本和制作说明，只额外重跑一次文字 Review。原 Review 保留。恢复验证脚本初版遗漏 HTTP snapshot 增补的 `skills`，导致比对断言失败；修正同等投影后在另一新目录恢复通过，未修改产品数据来迎合比较。
+
+### 尚未完成与验收界限
+
+当前成品保留草稿，Review 的 headline 与原构思差异、logo 布局比例和示意地点/修改保真等问题未替用户关闭；Review 的缩略图不能证明像素保真，精确 logo 结论来自上述文件比较。没有冒充用户采用或发布，没有把草稿 ZIP 当最终交付。用户确认后再记录问题处理、采用并验证最终 ZIP。
+
+固定白色底栏是当前实现的版式限制；模型底图仍可能出现额外标识，所以人工检查继续必要。两品牌各 Paid/Organic、研究/洞察/收藏/重启续作的完整覆盖、12 brief 配对视觉与主动时间、用户评价、首次安装/恢复和源码许可等发布门槛仍未完成。可视化分层编辑按原决定延期，不阻断 V1。
+
+成片展示后用户询问底栏是否固定模板或能力限制，未表示采用。检查用户原始 PNG 有透明通道且非全不透明；底栏是本轮工程选择，不是素材或合成能力要求。直接将透明 logo 叠加原图在技术上可行；默认位置/大小及是否保留底栏为可选版式待确定。当前提交仅记录已验证的保真机制与技术样例，不把固定底栏写成用户认可的视觉设计。
 
 ## Dogfood 后当前 V1 差距（2026-10-06）
+
+以下保留当时的差距快照；logo 与本轮实测已有上述后继实现，不能继续把它们全部列为未实现。
 
 本节是只读现状核对与新需求记录，**未执行新的工程/模型验收，未实施 logo 修复，未重开 containment 调查**。检查基线 `2fa9295199d46e6e9df1af5a0ff04fdd226d8a19`，`codex/production-loop-feasibility`，开工 staged/unstaged/untracked 均干净。不能从下方历史 NOT_RUN/旧 BLOCKED 表推断这些功能现在仍未实现。
 

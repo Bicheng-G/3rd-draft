@@ -2,7 +2,9 @@
 
 A local creative workspace for project knowledge, sources, insights, ideas, reusable creative sets, images, and feedback. The product interface is English; each task chooses its own output language.
 
-**v0.1 final acceptance: PASS WITH NON-BLOCKING LIMITATIONS.** [Real RidePass dogfooding](docs/product/validation-v0.1.md#ridepass-最终-dogfood2026-10-05) verified that a saved creative judgement influenced a separate task after a service restart, without being restated, and reached a newly archived image. Two real text runs and two image actions succeeded; all 132 regression tests passed. Work stops at this acceptance milestone. Full V1 remains unaccepted.
+**Current milestone (2026-10-20): official logo integration implemented and exercised on RidePass.** One real generation and one instruction edit preserve the uploaded logo through local composition; private backup/restore and all 140 regression tests pass. The images remain drafts pending owner adoption. Full V1 remains unaccepted; see [current evidence and remaining gates](docs/product/validation-v1.md#正式-logo-与-ridepass-工作流2026-10-20).
+
+**Historical v0.1 final acceptance: PASS WITH NON-BLOCKING LIMITATIONS.** [Real RidePass dogfooding](docs/product/validation-v0.1.md#ridepass-最终-dogfood2026-10-05) verified that a saved creative judgement influenced a separate task after a service restart, without being restated, and reached a newly archived image. Two real text runs and two image actions succeeded; all 132 regression tests passed. The owner subsequently authorized the logo and workflow work above.
 
 The smallest native image loop also has prior evidence: explicit Generate, verified immutable archival, and one instruction Edit preserving the original version. Real ChatGPT subscription validation completed on Codex `0.160.0`; evidence and remaining V1 gates are recorded in [V1 validation](docs/product/validation-v1.md). Imported images and local composition are labelled separately.
 
@@ -33,6 +35,8 @@ A new executable hash or contract configuration requires fresh bounded probes be
 Native production uses an application-authored tool call on a local Responses transport. The sole tool is native image generation; no external model chooses tools or file paths. Third Draft stages validated image buffers inside the current project and forwards image requests only to the fixed ChatGPT subscription endpoint. Each explicit Production Action has a durable limit of two image operations, including retries. Returned image bytes must match the verified native file before archival. This controls the specific production route; it is not a general operating-system sandbox.
 
 ## Use the workspace
+
+Official logos: import an image as **Logo** in Knowledge → Images, then explicitly choose **Use as official logo**. Generation, instruction edits, and local composition require this selection. Native production saves an unbranded source and adds the exact uploaded logo in a white footer locally. Edits use the source and reapply the current logo; originals remain unchanged. Older native images without a saved source need a new generation. Check for extra or invented brand marks before adoption. Changing the official logo requires a new image version for final delivery. Private backups include the editable source; delivery ZIPs do not.
 
 1. Create a project. In **Knowledge**, import text/Markdown or images and save references. Brand facts remain drafts until you explicitly confirm them. Image extraction produces a draft too.
 2. Save research observations or explicitly read one public source URL. Select evidence to synthesize an insight. Creative tasks never start new research automatically.

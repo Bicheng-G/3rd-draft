@@ -30,6 +30,35 @@ function escaped(value){return value.replace(/&/g,'&amp;').replace(/</g,'&lt;').
 function brandHash(store,projectId){return hash([...new Map(store.rows('knowledge',projectId).filter(k=>k.kind==='brand'&&k.status==='confirmed').map(k=>[k.itemId,k.id])).values()]);}
 export class AssetService {
   constructor(store){this.store=store;}
+  brandLogo(projectId){
+    this.store.project(projectId);
+    const selection=this.store.rows('selections',projectId).filter(item=>item.decision==='brand_logo').at(-1);
+    if(!selection)return null;
+    const logo=this.store.record('assets',projectId,selection.targetId);
+    if(logo.method!=='imported'||logo.role!=='logo')throw new AppError('invalid_logo','The official logo must be an uploaded logo asset.');
+    this.read(projectId,logo.id);return logo;
+  }
+  designateLogo(projectId,assetId){
+    this.read(projectId,assetId);
+    return this.store.select(projectId,{targetType:'asset',targetId:assetId,decision:'brand_logo'});
+  }
+  requireLogo(projectId,expectedId){
+    const logo=this.brandLogo(projectId);
+    if(!logo)throw new AppError('brand_logo_required','Upload a logo in Knowledge → Images and choose Use as official logo before making a brand image.',409);
+    if(expectedId&&expectedId!==logo.id)throw new AppError('brand_logo_changed','The official logo changed. Refresh and review it before starting production.',409);
+    return logo;
+  }
+  readProductionSource(projectId,assetId){
+    const asset=this.store.record('assets',projectId,assetId),source=asset.productionSource;
+    if(!source)throw new AppError('source_unavailable','This older image has no saved unbranded source. Generate a new image with the official logo before editing.',409);
+    const owner=this.store.record('assets',projectId,source.assetId);
+    const expected=path.join('projects',projectId,'assets',owner.id,'source.png');
+    if(source.artifactPath!==expected||owner.productionSource?.assetId!==owner.id||owner.productionSource?.artifactHash!==source.artifactHash)
+      throw new AppError('invalid_archive','The production source reference failed validation.',500);
+    let bytes;try{bytes=readFileSync(this.store.safePath(expected));}catch{throw new AppError('invalid_archive','The production source is missing or unreadable.',500);}
+    if(hash(bytes)!==source.artifactHash)throw new AppError('invalid_archive','The production source hash does not match.',500);
+    return bytes;
+  }
   read(projectId,assetId){
     const asset=this.store.record('assets',projectId,assetId),expected=path.join('projects',projectId,'assets',asset.id,'image.png');
     if(asset.artifactPath!==expected)throw new AppError('invalid_archive','The asset path failed validation.',500);
@@ -51,22 +80,41 @@ export class AssetService {
     if(parent&&input.referenceAssetIds.includes(parent.id))throw new AppError('invalid_input','The edit source is already included; select only additional reference images.');
     const reference=asset=>({id:asset.id,name:asset.name,source:asset.source,artifactHash:asset.artifactHash,contentHash:asset.contentHash});
     const references=input.referenceAssetIds.map(assetId=>reference(this.store.record('assets',projectId,assetId)));
+    if(input.referenceAssetIds.some(assetId=>{const asset=this.store.record('assets',projectId,assetId);return asset.role==='logo'||asset.branding;}))
+      throw new AppError('invalid_logo_reference','Official logos are composed locally; do not send a logo as a model reference.');
+    const logo=this.requireLogo(projectId,input.logoId);
+    if(parent)this.readProductionSource(projectId,parent.id);
     const confirmedBrand=[...new Map(this.store.rows('knowledge',projectId).filter(k=>k.kind==='brand'&&k.status==='confirmed').map(k=>[k.itemId,k])).values()];
     // Explicit references are separate from both the brief's historical asset
     // list and the prior AssetVersion being revised.
-    return {...snapshot,projectId,parent:parent?reference(parent):null,references,confirmedBrand,
+    return {...snapshot,projectId,parent:parent?reference(parent):null,references,confirmedBrand,logo:reference(logo),
       instruction:input.instruction,capturedAt:now(),maxImageOperations:2};
   }
-  productionOutput(projectId,run,normalized){
+  async productionOutput(projectId,run,normalized){
     const snapshot=run.context.productionSnapshot;
+    const logo=this.store.record('assets',projectId,snapshot.logo.id),logoBytes=this.read(projectId,logo.id);
+    if(logo.artifactHash!==snapshot.logo.artifactHash)throw new AppError('invalid_archive','The frozen logo hash changed.',500);
+    // Keep the full model image as an immutable source. A separate white footer
+    // contains only deterministic logo pixels; neither crop nor redraw the logo.
+    const width=normalized.width,height=normalized.height;
+    if(width<16||height<16)throw new AppError('invalid_image','The generated image is too small for legible branding.');
+    const footer=Math.max(4,Math.round(height*0.16)),padding=Math.max(1,Math.round(footer*0.15));
+    const layer=await sharp(logoBytes).resize({width:Math.max(1,Math.floor(width*0.4)),height:Math.max(1,footer-padding*2),fit:'inside',withoutEnlargement:true}).flatten({background:'#ffffff'}).png().toBuffer({resolveWithObject:true});
+    const placement={left:Math.floor((width-layer.info.width)/2),top:height-footer+Math.floor((footer-layer.info.height)/2),width:layer.info.width,height:layer.info.height};
+    const visual=await sharp(normalized.bytes).resize(width,height-footer,{fit:'contain',background:'#ffffff'}).png().toBuffer();
+    const bytes=await sharp({create:{width,height,channels:4,background:'#ffffff'}}).composite([{input:visual,left:0,top:0},{input:layer.data,left:placement.left,top:placement.top}]).png().toBuffer();
+    if(bytes.length>IMAGE_LIMITS.bytes)throw new AppError('invalid_image','The branded image exceeds the archive size limit.');
     const record={id:id(),name:snapshot.concept.title,source:'Third Draft native ChatGPT image production',method:'native',role:'work',
       parentId:snapshot.parent?.id??null,runId:run.id,setId:snapshot.setId,briefId:snapshot.briefId,conceptId:snapshot.conceptId,
       snapshot,caption:snapshot.concept.body,style:snapshot.brief.style,change:snapshot.parent?'instruction_edit':'generation',
       instruction:snapshot.instruction,createdBy:'runtime',mime:'image/png',width:normalized.width,height:normalized.height,
-      inputHash:normalized.inputHash,createdAt:now(),schemaVersion:3,machineChecks:{decoded:true,metadataRemoved:true,nativeFileVerified:true}};
+      inputHash:normalized.inputHash,createdAt:now(),schemaVersion:3,
+      branding:{policy:'official-logo-footer-v1',logoId:logo.id,logoHash:logo.artifactHash,placement,layerHash:hash(layer.data)},
+      machineChecks:{decoded:true,metadataRemoved:true,nativeFileVerified:true,logoUncropped:true,officialLogoComposited:true}};
     record.artifactPath=path.join('projects',projectId,'assets',record.id,'image.png');
-    record.artifactHash=hash(normalized.bytes);record.contentHash=hash(record);
-    return {record,imageBase64:normalized.bytes.toString('base64')};
+    record.productionSource={assetId:record.id,artifactPath:path.join('projects',projectId,'assets',record.id,'source.png'),artifactHash:hash(normalized.bytes),width,height};
+    record.artifactHash=hash(bytes);record.contentHash=hash(record);
+    return {record,imageBase64:bytes.toString('base64'),sourceImageBase64:normalized.bytes.toString('base64')};
   }
   save(projectId,normalized,fields){
     this.store.assertWritable(projectId);
@@ -74,7 +122,7 @@ export class AssetService {
     record.artifactPath=path.join('projects',projectId,'assets',record.id,'image.png');record.artifactHash=hash(normalized.bytes);record.contentHash=hash(record);
     const filename=this.store.safePath(record.artifactPath);mkdirSync(path.dirname(filename),{recursive:true});writeFileSync(filename+'.tmp',normalized.bytes,{flag:'wx'});
     if(hash(readFileSync(filename+'.tmp'))!==record.artifactHash)throw new AppError('archive_failed','Image write verification failed.',500);renameSync(filename+'.tmp',filename);
-    this.store.transaction(()=>{this.store.db.prepare('INSERT INTO assets VALUES (?,?,?,?,?,?,?,?)').run(record.id,projectId,record.parentId??null,record.runId??null,record.setId??null,record.conceptId??null,record.briefId??null,JSON.stringify(record));for(const ref of new Set([record.composition?.visualId,record.composition?.logoId,...(record.method==='native'?record.snapshot.references.map(ref=>ref.id):[])].filter(Boolean)))this.store.db.prepare('INSERT INTO asset_links VALUES (?,?,?)').run(projectId,record.id,ref);});return record;
+    this.store.transaction(()=>{this.store.db.prepare('INSERT INTO assets VALUES (?,?,?,?,?,?,?,?)').run(record.id,projectId,record.parentId??null,record.runId??null,record.setId??null,record.conceptId??null,record.briefId??null,JSON.stringify(record));for(const ref of new Set([record.composition?.visualId,record.composition?.logoId,record.branding?.logoId,...(record.method==='native'?record.snapshot.references.map(ref=>ref.id):[])].filter(Boolean)))this.store.db.prepare('INSERT INTO asset_links VALUES (?,?,?)').run(projectId,record.id,ref);});return record;
   }
   async import(projectId,input){
     this.store.assertWritable(projectId);const name=text(input.name,'Image name',160),source=text(input.source,'Image source',500);
@@ -88,7 +136,8 @@ export class AssetService {
     return this.save(projectId,normalized,{...fields,name:previous.name,parentId:previous.id,caption:text(input.caption,'Caption',8000),change:'caption_only',createdBy:'user'});
   }
   async compose(projectId,input){
-    this.store.assertWritable(projectId);const snapshot=this.snapshot(projectId,input),visual=this.store.record('assets',projectId,input.visualId),logo=this.store.record('assets',projectId,input.logoId);
+    this.store.assertWritable(projectId);const snapshot=this.snapshot(projectId,input),visual=this.store.record('assets',projectId,input.visualId),logo=this.requireLogo(projectId,input.logoId);
+    snapshot.logo={id:logo.id,artifactHash:logo.artifactHash,contentHash:logo.contentHash};
     const previous=input.parentAssetId?this.store.record('assets',projectId,input.parentAssetId):null;
     if(previous){
       if(previous.method!=='layered'||previous.setId!==snapshot.setId||previous.conceptId!==snapshot.conceptId)throw new AppError('invalid_input','Recompose must revise a layered image from the same creative set and idea version.');
@@ -104,13 +153,16 @@ export class AssetService {
     if(headlineLayer.info.height>220||headlineLayer.info.width>width-2*margin)throw new AppError('text_overflow','The headline does not fit. Shorten it before composing.');
     layers.push({input:headlineLayer.data,left:margin,top:margin});
     const visualHeight=height-440;
-    const visualLayer=await sharp(this.read(projectId,visual.id)).resize(width-2*margin,visualHeight,{fit:'contain',background:'#f8f5ed'}).png().toBuffer();
+    const visualBytes=visual.productionSource?this.readProductionSource(projectId,visual.id):this.read(projectId,visual.id);
+    const visualLayer=await sharp(visualBytes).resize(width-2*margin,visualHeight,{fit:'contain',background:'#f8f5ed'}).png().toBuffer();
     layers.push({input:visualLayer,left:margin,top:300});
     const logoLayer=await sharp(this.read(projectId,logo.id)).resize(180,72,{fit:'contain',background:{r:248,g:245,b:237,alpha:0}}).png().toBuffer();
     layers.push({input:logoLayer,left:margin,top:height-104});
     if(cta){const ctaLayer=await sharp({text:{text:escaped(cta),font:`${font} 28`,fontfile:fontPath,width:width-2*margin-240,rgba:true,dpi:72}}).png().toBuffer({resolveWithObject:true});if(ctaLayer.info.height>72)throw new AppError('text_overflow','The CTA does not fit. Shorten it before composing.');layers.push({input:ctaLayer.data,left:304,top:height-100});}
     const bytes=await sharp({create:{width,height,channels:4,background:'#f8f5ed'}}).composite(layers).png().toBuffer();
-    return this.save(projectId,{bytes,width,height,inputHash:hash({visual:visual.artifactHash,logo:logo.artifactHash,headline,cta,font,ratio:input.ratio,parentAssetId:previous?.id??null})},{name:optionalText(input.name,'Image name',160)||snapshot.concept.title,source:'Third Draft local composition',method:'layered',parentId:previous?.id??null,setId:snapshot.setId,briefId:snapshot.briefId,conceptId:snapshot.conceptId,snapshot,caption:optionalText(input.caption,'Caption',8000)||snapshot.concept.body,style:snapshot.brief.style,composition:{template:'editorial-v1',ratio:input.ratio,visualId:visual.id,logoId:logo.id,headline,cta,font,fontHash:hash(readFileSync(fontPath)),layers:[{role:'headline',x:margin,y:margin},{role:'visual',x:margin,y:300,width:width-2*margin,height:visualHeight,fit:'contain'},{role:'logo',x:margin,y:height-104,width:180,height:72,fit:'contain'},{role:'cta',x:304,y:height-100}]},machineChecks:{decoded:true,dimensions:true,textFits:true,logoUncropped:true,fontAvailable:true}});
+    return this.save(projectId,{bytes,width,height,inputHash:hash({visual:hash(visualBytes),logo:logo.artifactHash,headline,cta,font,ratio:input.ratio,parentAssetId:previous?.id??null})},{name:optionalText(input.name,'Image name',160)||snapshot.concept.title,source:'Third Draft local composition',method:'layered',parentId:previous?.id??null,setId:snapshot.setId,briefId:snapshot.briefId,conceptId:snapshot.conceptId,snapshot,caption:optionalText(input.caption,'Caption',8000)||snapshot.concept.body,style:snapshot.brief.style,
+      branding:{policy:'official-logo-editorial-v1',logoId:logo.id,logoHash:logo.artifactHash},
+      composition:{template:'editorial-v1',ratio:input.ratio,visualId:visual.id,logoId:logo.id,headline,cta,font,fontHash:hash(readFileSync(fontPath)),layers:[{role:'headline',x:margin,y:margin},{role:'visual',x:margin,y:300,width:width-2*margin,height:visualHeight,fit:'contain'},{role:'logo',x:margin,y:height-104,width:180,height:72,fit:'contain'},{role:'cta',x:304,y:height-100}]},machineChecks:{decoded:true,dimensions:true,textFits:true,logoUncropped:true,fontAvailable:true}});
   }
   reviewContext(projectId,assetId){
     const asset=this.store.record('assets',projectId,assetId);this.read(projectId,assetId);
@@ -119,6 +171,12 @@ export class AssetService {
   adoptionIssues(projectId,assetId){
     const asset=this.store.record('assets',projectId,assetId),reviews=this.store.rows('reviews',projectId).filter(r=>r.assetId===assetId),resolutions=this.store.rows('selections',projectId).filter(s=>s.targetId===assetId&&s.decision==='issue_resolved');
     const issues=[];this.read(projectId,assetId);
+    if(asset.method==='native'&&!asset.branding)issues.push({code:'official_logo_required',message:'This older native image has no verified official logo. Generate a new branded version before adoption.'});
+    if(asset.branding){
+      const logo=this.brandLogo(projectId);
+      if(!logo||logo.id!==asset.branding.logoId||logo.artifactHash!==asset.branding.logoHash)
+        issues.push({code:'logo_changed',message:'The official logo changed. Make a new image version before adoption or final delivery.'});
+    }
     if(!reviews.length)issues.push({code:'review_required',message:'Run a review before final adoption.'});
     const latest=reviews.at(-1);if(latest&&latest.snapshot.brandHash!==brandHash(this.store,projectId))issues.push({code:'brand_changed',message:'Brand facts changed. Review this image again against the current facts.'});
     if(asset.setId){const brief=this.store.rows('briefs',projectId).filter(b=>b.setId===asset.setId).at(-1);if(brief.id!==asset.briefId)issues.push({code:'brief_changed',message:'The set brief changed. Produce a new version under the current brief.'});}
@@ -130,7 +188,17 @@ export class AssetService {
     const record={id:id(),targetType:'asset',targetId:review.assetId,decision:'issue_resolved',reviewId,issueId:input.issueId,reason:text(input.reason,'Resolution explanation',1500),createdAt:now(),createdBy:'user'};
     this.store.db.prepare('INSERT INTO selections VALUES (?,?,?,?,?,?)').run(record.id,projectId,null,review.assetId,JSON.stringify(record),null);return record;
   }
-  adopt(projectId,input){if(input.targetType==='asset'&&input.decision==='adopted'){const issues=this.adoptionIssues(projectId,input.targetId);if(issues.length)throw new AppError('adoption_blocked',issues.map(i=>i.message??i.explanation).join(' '),409);}return this.store.select(projectId,input);}
+  adopt(projectId,input){
+    if(input.decision==='brand_logo'){
+      if(input.targetType!=='asset')throw new AppError('invalid_logo','Choose an uploaded logo asset.');
+      return this.designateLogo(projectId,input.targetId);
+    }
+    if(input.targetType==='asset'&&input.decision==='adopted'){
+      const asset=this.store.record('assets',projectId,input.targetId);
+      if(asset.branding&&input.brandMarksChecked!==true)throw new AppError('adoption_blocked','Check the actual image for extra or invented brand marks before adopting.',409);
+      const issues=this.adoptionIssues(projectId,input.targetId);if(issues.length)throw new AppError('adoption_blocked',issues.map(i=>i.message??i.explanation).join(' '),409);
+    }return this.store.select(projectId,input);
+  }
   export(projectId,setId,{draft=false}={}){
     const set=this.store.record('sets',projectId,setId),assets=this.store.rows('assets',projectId).filter(a=>a.setId===setId),selections=this.store.rows('selections',projectId),files={},items=[];
     for(const asset of assets){const selected=selections.filter(s=>s.targetId===asset.id&&['adopted','rejected'].includes(s.decision)).at(-1)?.decision==='adopted';if(!draft&&!selected)continue;if(!draft&&this.adoptionIssues(projectId,asset.id).length)throw new AppError('stale_delivery','An adopted image now needs another review. Use a draft export or resolve its current issues.',409);const stem=asset.id;files[`${stem}.png`]=new Uint8Array(this.read(projectId,asset.id));files[`${stem}.txt`]=strToU8(asset.caption??'');items.push({id:asset.id,parentId:this.store.assetLineage(projectId,asset).parentAssetVersionId,dependencyAssetIds:this.store.assetLineage(projectId,asset).dependencyAssetIds,image:`${stem}.png`,caption:`${stem}.txt`,imageHash:asset.artifactHash,captionHash:hash(asset.caption??''),width:asset.width,height:asset.height,method:asset.method,conceptId:asset.conceptId,briefId:asset.briefId});}

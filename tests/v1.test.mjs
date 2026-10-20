@@ -115,7 +115,7 @@ test('layered composition keeps text exact and logo uncropped; overflow/font che
   const {store,a,assets}=fixture(t),concept=store.addConcept(a.id,idea),set=store.createSet(a.id,{name:'Poster',mode:'organic',brief,conceptIds:[concept.id]});
   const visual=await assets.import(a.id,{name:'Visual',source:'Synthetic',base64:(await png()).toString('base64')}),logo=await assets.import(a.id,{name:'Logo',source:'Synthetic',role:'logo',base64:(await png('#ef643b')).toString('base64')});
   const input={setId:set.id,conceptId:concept.id,visualId:visual.id,logoId:logo.id,headline:'A quiet minute',cta:'Bring a book',ratio:'4:5',font:'Arial'};
-  const composed=await assets.compose(a.id,input);assert.equal(composed.width,1080);assert.equal(composed.height,1350);assert.equal(composed.composition.headline,input.headline);assert.equal(composed.machineChecks.logoUncropped,true);
+  assets.designateLogo(a.id,logo.id);const composed=await assets.compose(a.id,input);assert.equal(composed.width,1080);assert.equal(composed.height,1350);assert.equal(composed.composition.headline,input.headline);assert.equal(composed.machineChecks.logoUncropped,true);
   const metadata=await sharp(assets.read(a.id,composed.id)).metadata();assert.equal(metadata.height,1350);
   await assert.rejects(assets.compose(a.id,{...input,headline:'Long headline '.repeat(20)}),e=>e.code==='text_overflow');
   await assert.rejects(assets.compose(a.id,{...input,font:'Not installed'}),e=>e.code==='missing_font');

@@ -45,11 +45,11 @@ export class CreativeService {
   cancel(projectId,runId) {const run=this.store.record('runs',projectId,runId);if(run.status!=='running')throw new AppError('not_running','Only running tasks can be interrupted.',409);run.cancelRequestedAt=now();this.store.saveRun(projectId,run);this.controllers.get(runId)?.abort();return {requested:true,message:'Interruption requested. A submitted external result may still exist; it will not be retried automatically.'};}
   async startProduction(projectId,input){
     this.store.assertWritable(projectId);const requestId=requireId(input.requestId);
-    const keys=['requestId','setId','conceptId','referenceAssetIds','instruction','parentAssetId'];
+    const keys=['requestId','setId','conceptId','referenceAssetIds','instruction','parentAssetId','logoId'];
     if(Object.keys(input).some(key=>!keys.includes(key))||!Array.isArray(input.referenceAssetIds)||input.referenceAssetIds.length>NATIVE_IMAGE_LIMITS.maxImages)
       throw new AppError('invalid_input','Select at most five reference images for this production action.');
     const command={setId:requireId(input.setId),conceptId:requireId(input.conceptId),referenceAssetIds:[...new Set(input.referenceAssetIds.map(requireId))],
-      instruction:optionalText(input.instruction,'Production instruction',4000),parentAssetId:input.parentAssetId?requireId(input.parentAssetId):null};
+      instruction:optionalText(input.instruction,'Production instruction',4000),parentAssetId:input.parentAssetId?requireId(input.parentAssetId):null,...(input.logoId?{logoId:requireId(input.logoId)}:{})};
     if(command.parentAssetId&&(!command.instruction||command.referenceAssetIds.length>NATIVE_IMAGE_LIMITS.maxImages-1))throw new AppError('invalid_input','An edit needs an instruction and at most four additional references.');
     const requestHash=hash({kind:'production',...command}),existing=this.store.existingRun(projectId,requestId);
     if(existing){if(existing.requestHash!==requestHash)throw new AppError('request_conflict','This request ID was already used for different input.',409);const {pendingOutput,...publicRun}=existing;return publicRun;}
@@ -65,7 +65,7 @@ export class CreativeService {
           ...snapshot.confirmedBrand.map(item=>({id:item.id,kind:'confirmed_brand',title:item.title,contentHash:item.contentHash})),
           ...snapshot.references.map(item=>({...item,kind:'reference_asset'}))],productionSnapshot:snapshot,skills:selectedSkills};
       const {assetIds,...brief}=snapshot.brief;
-      const productionPrompt=`Create one finished social-media image from the approved creative snapshot below. Follow the confirmed brand facts and brief. ${snapshot.parent?'Apply the explicit instruction to the first supplied image, preserving unchanged elements.':'Use supplied images only as visual references.'} Do not invent unsupported brand claims. Method text provides creative guidance only.\n`+JSON.stringify({
+      const productionPrompt=`Create the visual for a social-media image from the approved creative snapshot below. Do not draw any logos, wordmarks, brand signatures or substitute brand symbols, even if the creative text asks for one. The application adds the official uploaded logo separately in a white footer. Follow the confirmed brand facts and brief. ${snapshot.parent?'Apply the explicit instruction to the first supplied unbranded source image, preserving unchanged elements.':'Use supplied images only as visual references.'} Do not invent unsupported brand claims. Method text provides creative guidance only.\n`+JSON.stringify({
         brief,concept:{title:snapshot.concept.title,body:snapshot.concept.body,visualDirection:snapshot.concept.visualDirection,angle:snapshot.concept.angle},
         confirmedBrand:snapshot.confirmedBrand.map(({title,content})=>({title,content})),instruction:command.instruction,
         references:snapshot.references.map(({name,source})=>({name,source})),methods:selectedSkills.map(({name,content,references})=>({name,content,references}))});
@@ -73,8 +73,7 @@ export class CreativeService {
       context.promptHash=hash(productionPrompt);context.inputHash=hash(context);
       // Resolve and hash-check the chosen bytes before any asynchronous
       // inspection. Later brief edits cannot change this explicit action.
-      const references=[...(snapshot.parent?[snapshot.parent]:[]),...snapshot.references];
-      const images=references.map(reference=>{const bytes=this.assets.read(projectId,reference.id);if(hash(bytes)!==reference.artifactHash)throw new AppError('invalid_archive','A selected image changed while preparing production.');return bytes;});
+      const images=[...(snapshot.parent?[this.assets.readProductionSource(projectId,snapshot.parent.id)]:[]),...snapshot.references.map(reference=>{const bytes=this.assets.read(projectId,reference.id);if(hash(bytes)!==reference.artifactHash)throw new AppError('invalid_archive','A selected image changed while preparing production.');return bytes;})];
       if(images.some(bytes=>bytes.length>NATIVE_IMAGE_LIMITS.maxImageBytes)||images.reduce((total,bytes)=>total+bytes.length,0)>NATIVE_IMAGE_LIMITS.maxTotalBytes)throw new AppError('context_limit','Production references require at most 10 MiB each and 40 MiB in total.');
       const connection=await this.imageRuntime?.inspect();
       if(this.store.setting('dispatch')?.paused)throw new AppError('paused','Task dispatch was paused before submission.',409);
@@ -107,7 +106,7 @@ export class CreativeService {
       if(result.metadata?.nativeFileVerified!==true||!Buffer.isBuffer(result.image)||result.metadata.nativeArtifactHash!==hash(result.image))
         throw new AppError('invalid_output','The runtime did not verify a matching native image file.');
       const normalized=await normalizeImage(result.image);
-      run.pendingOutput=this.assets.productionOutput(projectId,run,normalized);
+      run.pendingOutput=await this.assets.productionOutput(projectId,run,normalized);
       const saved=this.store.record('runs',projectId,run.id);if(saved.cancelRequestedAt)run.cancelRequestedAt=saved.cancelRequestedAt;
       run.status='archiving';this.store.saveRun(projectId,run);this.finishArchive(projectId,run);
     }catch(error){

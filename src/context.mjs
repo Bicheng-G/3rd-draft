@@ -46,10 +46,11 @@ export function buildContext(store, projectId, input) {
   }
   const rank=records=>records.map(record=>({record,score:score(query,record)})).sort((a,b)=>b.score-a.score||b.record.createdAt.localeCompare(a.record.createdAt)||a.record.id.localeCompare(b.record.id));
   if(brief)add(brief,'brief','Current immutable brief version selected by the user.',JSON.stringify(brief));
-  if(asset)add(asset,'asset','The image version explicitly selected for extraction or review.',JSON.stringify({id:asset.id,name:asset.name,caption:asset.caption,width:asset.width,height:asset.height,composition:asset.composition??null,briefId:asset.briefId,artifactHash:asset.artifactHash,source:asset.source}));
-  const imageIds=[...new Set([asset?.id,...(taskType==='extract_brand'?[]:brief?.assetIds??[])].filter(Boolean))];
+  if(asset)add(asset,'asset','The image version explicitly selected for extraction or review.',JSON.stringify({id:asset.id,name:asset.name,caption:asset.caption,width:asset.width,height:asset.height,composition:asset.composition??null,branding:asset.branding??null,productionInstruction:asset.instruction??null,briefId:asset.briefId,artifactHash:asset.artifactHash,source:asset.source}));
+  const reviewLogoId=taskType==='review_asset'?asset?.branding?.logoId:null;
+  const imageIds=[...new Set([asset?.id,reviewLogoId,...(taskType==='extract_brand'?[]:brief?.assetIds??[])].filter(Boolean))];
   if(imageIds.length>8)throw new AppError('context_limit','Use at most 8 images including the review target.');
-  for(const assetId of imageIds.filter(ref=>ref!==asset?.id)){const reference=store.record('assets',projectId,assetId);add(reference,'reference_asset','Image explicitly selected in the current brief.',JSON.stringify({id:reference.id,name:reference.name,source:reference.source,role:reference.role,artifactHash:reference.artifactHash}));}
+  for(const assetId of imageIds.filter(ref=>ref!==asset?.id)){const reference=store.record('assets',projectId,assetId);add(reference,'reference_asset',assetId===reviewLogoId?'The official logo version composited into this work; compare it with the image.':'Image explicitly selected in the current brief.',JSON.stringify({id:reference.id,name:reference.name,source:reference.source,role:reference.role,artifactHash:reference.artifactHash}));}
   if(!Array.isArray(input.evidenceIds??[])||(input.evidenceIds??[]).length>12)throw new AppError('invalid_input','Select at most 12 evidence versions.');
   const citedContext=['ideate','develop'].includes(taskType)?source?.creationContext:null;
   const requestedEvidence=[...new Set([...(input.evidenceIds??[]),...(citedContext?.evidenceVersionIds??[])])];

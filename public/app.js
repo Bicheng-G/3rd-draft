@@ -573,6 +573,11 @@ function renderImages() {
     addDetail(card, 'Source', asset.source); addDetail(card, 'Style', asset.style);
     const decision = assetDecision(asset); if (decision) card.append(el('span', 'badge', decision === 'adopted' ? 'Adopted by user' : 'Rejected by user'));
     const actions = el('div', 'asset-actions'); actions.append(assetFileLink(asset), runtimeButton('Extract brand draft', () => assetTask(asset, 'extract_brand')));
+    if (asset.role === 'logo' && asset.method === 'imported') {
+      const selected = officialLogo()?.id === asset.id;
+      const choose = projectButton(selected ? 'Official project logo' : 'Use as official logo', 'button secondary', () => designateLogo(asset));
+      choose.disabled ||= selected; actions.append(choose);
+    }
     if (asset.setId) actions.append(button('Open in set ↗', 'text-button', () => { state.activeSetId = asset.setId; switchView('sets'); }));
     card.append(actions); list.append(card);
   }
@@ -605,13 +610,25 @@ function assetDecision(asset) {
   return state.data.selections.filter((item) => item.targetType === 'asset' && item.targetId === asset.id && ['adopted', 'rejected'].includes(item.decision)).at(-1)?.decision;
 }
 
+function officialLogo() {
+  const selected = state.data.selections.filter(item => item.decision === 'brand_logo').at(-1);
+  return state.data.assets.find(asset => asset.id === selected?.targetId);
+}
+
+async function designateLogo(asset) {
+  const projectId = state.projectId;
+  await api(`${projectPath(projectId)}/selections`, { targetType: 'asset', targetId: asset.id, decision: 'brand_logo' });
+  await refreshProject(projectId);
+  if (projectId === state.projectId) notify(`${asset.name} is the official logo for new images. Earlier versions are preserved.`);
+}
+
 function filterAssets(assets, filters) {
   return assets.filter((asset) => (!filters.style || asset.style === filters.style) && (filters.adoption === 'all' || (filters.adoption === 'not_adopted' ? assetDecision(asset) !== 'adopted' : assetDecision(asset) === filters.adoption)));
 }
 
 function composeImage(set, existing = null) {
-  const images = state.data.assets.filter((asset) => asset.role !== 'logo'), logos = state.data.assets.filter((asset) => asset.role === 'logo');
-  if (!set.conceptIds.length || !images.length || !logos.length) { notify('Add an idea to this set, then import a visual and a logo before composing.', true); return; }
+  const images = state.data.assets.filter((asset) => asset.role !== 'logo'), logo = officialLogo();
+  if (!set.conceptIds.length || !images.length || !logo) { notify('Add an idea and visual, then choose an official logo in Knowledge → Images before composing.', true); return; }
   const composition = existing?.composition;
   const editor = openEditor(existing ? 'Compose a new image version' : 'Compose an image locally', 'An editorial template places the selected visual, exact headline, logo, and optional call to action. No model call is made. Overflow and missing fonts are reported before success.', 'Create composition', async (form, projectId) => {
     const values = formValues(form);
@@ -622,7 +639,7 @@ function composeImage(set, existing = null) {
   const fields = editor.fields;
   addField(fields, 'Idea version', 'conceptId', existing?.conceptId || set.conceptIds[0], { required: true, options: (existing ? [existing.conceptId] : set.conceptIds).map((id) => ({ value: id, label: state.data.concepts.find((idea) => idea.id === id)?.title || id })) });
   addField(fields, 'Source visual', 'visualId', composition?.visualId || images[0].id, { required: true, options: images.map((asset) => ({ value: asset.id, label: `${asset.name} · ${asset.width} × ${asset.height}` })) });
-  addField(fields, 'Logo', 'logoId', composition?.logoId || logos[0].id, { required: true, options: logos.map((asset) => ({ value: asset.id, label: asset.name })) });
+  addField(fields, 'Official project logo', 'logoId', logo.id, { required: true, options: [{ value: logo.id, label: logo.name }], hint: 'Change the official logo in Knowledge → Images. Earlier images keep their original logo.' });
   addField(fields, 'Image name', 'name', existing?.name || '', { maxLength: 160 });
   addField(fields, 'Exact headline', 'headline', composition?.headline || '', { required: true, multiline: true, maxLength: 300 });
   addField(fields, 'Call to action', 'cta', composition?.cta || '', { maxLength: 100 });
@@ -639,24 +656,28 @@ function productionButton(label, handler) {
 }
 
 function produceImage(set, previous = null) {
+  const logo = officialLogo();
+  if (!logo) { notify('Upload a logo in Knowledge → Images and choose Use as official logo before generating or editing.', true); return; }
+  if (previous && !previous.productionSource) { notify('This older image has no saved unbranded source. Generate a new image with the official logo before editing.', true); return; }
   if (!state.imageRuntime?.available || !canRun()) { notify('Image production is unavailable. Refresh the connection or check Activity.', true); return; }
   if (!set.conceptIds.length) { notify('Add an idea version to this set before generating an image.', true); return; }
   const limit = previous ? 4 : 5;
   const editor = openEditor(previous ? 'Edit this image as a new version' : 'Generate an image',
-    `${previous ? 'The original image is included and preserved. Describe the change to make.' : 'Choose an idea version and the references to use.'} Starting authorizes this production action through your ChatGPT subscription, with at most two image operations. The result is saved for your review; it is not adopted or published automatically.`,
+    `${previous ? 'Edit the saved visual; the original version is preserved.' : 'Choose an idea version and the references to use.'} The official logo is added locally in a white footer, preserving its proportions. Starting authorizes this production action through your ChatGPT subscription, with at most two image operations. Review the saved result before adoption.`,
     previous ? 'Start image edit' : 'Start image generation', async form => {
       const referenceAssetIds = chosenValues(form, 'referenceAssetIds');
       if (referenceAssetIds.length > limit) throw new Error(`Select at most ${limit} additional references.`);
       const values = formValues(form);
       await submitRun({ setId: set.id, conceptId: previous?.conceptId || values.conceptId,
-        referenceAssetIds, instruction: values.instruction || '', ...(previous ? { parentAssetId: previous.id } : {}) }, { production: true });
+        referenceAssetIds, logoId: logo.id, instruction: values.instruction || '', ...(previous ? { parentAssetId: previous.id } : {}) }, { production: true });
     });
+  editor.fields.append(imagePreview(logo), el('p', 'source-strip', `Official logo: ${logo.name}`));
   if (previous) editor.fields.append(el('p', 'source-strip', `Original version: ${previous.name}`));
   else {
     const select = addField(editor.fields, 'Idea version', 'conceptId', '', { required: true, options: [] });
     fillOptions(select, set.conceptIds.map(id => ({ value: id, label: state.data.concepts.find(idea => idea.id === id)?.title || id })), 'Choose an idea version', '');
   }
-  addChoices(editor.fields, `Reference images · select up to ${limit}`, 'referenceAssetIds', state.data.assets.filter(asset => asset.id !== previous?.id));
+  addChoices(editor.fields, `Reference images · select up to ${limit}`, 'referenceAssetIds', state.data.assets.filter(asset => asset.id !== previous?.id && asset.role !== 'logo' && !asset.branding));
   addField(editor.fields, previous ? 'Editing instruction' : 'Additional direction', 'instruction', '',
     { required: Boolean(previous), multiline: true, rows: 4, maxLength: 4000, hint: previous ? 'Describe one change. The original remains a separate version.' : 'Optional. The selected idea and current brief supply the creative direction.' });
 }
@@ -681,10 +702,17 @@ function resolveReview(review, issue) {
 function selectAsset(asset, decision) {
   const titles = { adopted: 'Adopt this image version', rejected: 'Reject this image version', published: 'Mark as published', unpublished: 'Mark as unpublished' };
   const editor = openEditor(titles[decision], decision === 'adopted' ? 'You make the final choice. The server checks the review, current brand facts, and current brief before recording adoption. Adoption does not publish the image.' : 'This records your decision for this specific version. It does not publish, unpublish, or delete anything on an external platform.', 'Save decision', async (form, projectId) => {
-    await api(`${projectPath(projectId)}/selections`, { targetType: 'asset', targetId: asset.id, decision, reason: formValues(form).reason });
+    await api(`${projectPath(projectId)}/selections`, { targetType: 'asset', targetId: asset.id, decision, reason: formValues(form).reason, ...(decision === 'adopted' && asset.branding ? { brandMarksChecked: form.elements.brandMarksChecked.checked } : {}) });
     await refreshProject(projectId); if (projectId === state.projectId) notify('Your decision is saved for this image version.');
   });
   editor.fields.append(el('p', 'source-strip', asset.name));
+  if (decision === 'adopted' && asset.branding) {
+    editor.fields.append(imagePreview(asset));
+    const label = el('label', 'record-choice'), check = el('input');
+    check.type = 'checkbox'; check.name = 'brandMarksChecked'; check.required = true;
+    label.append(check, el('span', '', 'I checked the image: the official logo is correct, and there are no extra or invented brand marks.'));
+    editor.fields.append(label);
+  }
   addField(editor.fields, 'Reason or publication note', 'reason', '', { required: true, multiline: true, maxLength: 1500 });
 }
 
@@ -758,6 +786,8 @@ function renderStudio(set) {
   const section = el('section', 'studio-section');
   const heading = el('div', 'view-toolbar'); const intro = el('div'); intro.append(el('span', 'section-number', 'STUDIO'), el('h3', '', 'Make, review, and choose.'));
   heading.append(intro, productionButton('Generate image', () => produceImage(set)), projectButton('Import image', 'button secondary', () => uploadImage(set)), projectButton('Compose locally', 'button primary', () => composeImage(set))); section.append(heading);
+  const logo = officialLogo();
+  section.append(el('p', logo ? 'source-strip' : 'notice', logo ? `Official logo: ${logo.name}. New versions use this logo; earlier images are preserved.` : 'Before making an image, upload a logo in Knowledge → Images and choose Use as official logo.'));
   if (set.archived) for (const node of heading.querySelectorAll('button')) { node.disabled = true; node.dataset.blockedBySet = 'true'; }
   const capability = el('details', 'capability-note');
   capability.append(el('summary', '', `Native image generation & editing · ${state.imageRuntime?.available ? 'Ready' : 'Unavailable'}`));

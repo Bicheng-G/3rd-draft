@@ -30,6 +30,18 @@ function fixture(t) {
   const pending = store.safePath(path.join('projects', a.id, 'pending')); mkdirSync(pending, { recursive: true }); writeFileSync(path.join(pending, 'temporary.json'), 'PENDING_FILE_CANARY');
   return { directory, store, library, assets, a, b, concept };
 }
+test('runtime compatibility evidence hashes roundtrip without becoming research evidence references',t=>{
+  const {store,library,a,directory}=fixture(t);
+  const run={id:id(),requestId:id(),requestHash:hash('probe'),status:'failed',
+    capabilitySnapshot:{compatibility:{evidenceId:hash('capability probe')}},
+    runtimeMetadata:{compatibility:{evidenceId:hash('runtime probe')}}};
+  store.insertRun(a.id,run);
+  const archive=exportProject(store,library,a.id),destination=path.join(directory,'restored');
+  restoreProject(archive,destination);
+  const restored=new Store(destination);try{assert.deepEqual(restored.record('runs',a.id,run.id),run);}finally{restored.close();}
+  run.context={evidenceId:hash('not a research record')};store.saveRun(a.id,run);
+  assert.throws(()=>exportProject(store,library,a.id),{code:'invalid_backup'});
+});
 async function richFixture(t) {
   const f = fixture(t), { store, library, assets, a, b, concept } = f;
   const brand = store.addKnowledge(a.id, { kind: 'brand', title: 'Voice', content: 'Precise and calm.', source: 'Synthetic brand guide' });

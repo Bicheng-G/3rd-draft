@@ -236,12 +236,13 @@ export class Store {
     const archived=this.writeConcept(projectId,concept);this.db.prepare('INSERT INTO concepts VALUES (?,?,?,?,?)').run(archived.id,projectId,null,archived.parentId,JSON.stringify(archived));return archived;
   }
   select(projectId,input) {
-    this.assertWritable(projectId);if(!['concept','asset'].includes(input.targetType)||!['adopted','rejected','published','unpublished','archived','unarchived'].includes(input.decision)||input.targetType==='asset'&&['archived','unarchived'].includes(input.decision))throw new AppError('invalid_input','Invalid selection.');
+    this.assertWritable(projectId);if(!['concept','asset'].includes(input.targetType)||!['adopted','rejected','published','unpublished','archived','unarchived','brand_logo'].includes(input.decision)||input.targetType==='asset'&&['archived','unarchived'].includes(input.decision))throw new AppError('invalid_input','Invalid selection.');
     const target=this.record(input.targetType==='concept'?'concepts':'assets',projectId,input.targetId);
+    if(input.decision==='brand_logo'&&(input.targetType!=='asset'||target.method!=='imported'||target.role!=='logo'))throw new AppError('invalid_logo','Choose an uploaded logo asset from this project.');
     const scoped=input.targetType==='concept'&&['adopted','rejected'].includes(input.decision);
     if(scoped){if(!input.setId)throw new AppError('invalid_input','Choose the creative set for this idea decision.');this.writableSet(projectId,input.setId);if(!this.setConcepts(projectId,input.setId).includes(target.id))throw new AppError('invalid_input','Add this idea version to the set before recording a decision.');}
     else if(input.setId)throw new AppError('invalid_input','This decision does not accept a creative set scope.');
-    const record={id:id(),targetId:input.targetId,targetType:input.targetType,decision:input.decision,reason:optionalText(input.reason,'Selection reason',1500),createdAt:now(),createdBy:'user',...(scoped?{setId:input.setId}:{}),...(['archived','unarchived'].includes(input.decision)?{ideaId:target.ideaId}:{})};
+    const record={id:id(),targetId:input.targetId,targetType:input.targetType,decision:input.decision,reason:optionalText(input.reason,'Selection reason',1500),createdAt:now(),createdBy:'user',...(input.targetType==='asset'&&input.decision==='adopted'&&input.brandMarksChecked===true?{brandMarksChecked:true}:{}),...(scoped?{setId:input.setId}:{}),...(['archived','unarchived'].includes(input.decision)?{ideaId:target.ideaId}:{})};
     this.db.prepare('INSERT INTO selections VALUES (?,?,?,?,?,?)').run(record.id,projectId,input.targetType==='concept'?input.targetId:null,input.targetType==='asset'?input.targetId:null,JSON.stringify(record),scoped?input.setId:null);return record;
   }
   setting(name,value) {if(value===undefined){const row=this.db.prepare('SELECT payload FROM settings WHERE name=?').get(name);return row?JSON.parse(row.payload):null;}this.db.prepare('INSERT INTO settings VALUES (?,?) ON CONFLICT(name) DO UPDATE SET payload=excluded.payload').run(name,JSON.stringify(value));return value;}
@@ -258,7 +259,7 @@ export class Store {
   archive(projectId, run) {
     if (!run.pendingOutput) throw new Error('Missing validated output');
     if(['produce_image','edit_image'].includes(run.taskType)){
-      const {record,imageBase64}=run.pendingOutput,{contentHash,...fields}=record;
+      const {record,imageBase64,sourceImageBase64}=run.pendingOutput,{contentHash,...fields}=record;
       const expected=path.join('projects',projectId,'assets',requireId(record.id),'image.png');
       if(record.runId!==run.id||record.artifactPath!==expected||record.method!=='native'||contentHash!==hash(fields)||typeof imageBase64!=='string'||imageBase64.length>Math.ceil(20*1024*1024/3)*4)
         throw new AppError('invalid_archive','The pending production record failed validation.',500);
@@ -266,24 +267,36 @@ export class Store {
       if(bytes.toString('base64')!==imageBase64||bytes.length<33||bytes.length>20*1024*1024||hash(bytes)!==record.artifactHash||
         !bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))||bytes.readUInt32BE(16)!==record.width||bytes.readUInt32BE(20)!==record.height)
         throw new AppError('invalid_archive','The pending production image failed validation.',500);
-      const filename=this.safePath(expected),temporary=this.safePath(expected+'.tmp');
+      const writeImage=(relative,bytes,checksum)=>{
+      const filename=this.safePath(relative),temporary=this.safePath(relative+'.tmp');
       mkdirSync(path.dirname(filename),{recursive:true});
       const regular=filename=>{if(existsSync(filename)){const stat=lstatSync(filename);if(!stat.isFile()||stat.isSymbolicLink()||stat.nlink!==1)throw new AppError('invalid_archive','Linked image archive files are not allowed.',500);}};
       regular(filename);regular(temporary);
       if(existsSync(filename)){
-        if(hash(readFileSync(filename))!==record.artifactHash)throw new AppError('invalid_archive','An immutable image archive already contains different bytes.',500);
+        if(hash(readFileSync(filename))!==checksum)throw new AppError('invalid_archive','An immutable image archive already contains different bytes.',500);
       }else{
         const descriptor=openSync(temporary,'w');try{writeFileSync(descriptor,bytes);fsyncSync(descriptor);}finally{closeSync(descriptor);}
-        if(hash(readFileSync(temporary))!==record.artifactHash)throw new AppError('archive_failed','Image write verification failed.',500);
+        if(hash(readFileSync(temporary))!==checksum)throw new AppError('archive_failed','Image write verification failed.',500);
         renameSync(temporary,filename);
       }
+      };
+      if(record.productionSource){
+        const source=record.productionSource,sourcePath=path.join('projects',projectId,'assets',record.id,'source.png');
+        if(source.assetId!==record.id||source.artifactPath!==sourcePath||typeof sourceImageBase64!=='string'||sourceImageBase64.length>Math.ceil(20*1024*1024/3)*4)
+          throw new AppError('invalid_archive','The pending source failed validation.',500);
+        const sourceBytes=Buffer.from(sourceImageBase64,'base64');
+        if(sourceBytes.toString('base64')!==sourceImageBase64||hash(sourceBytes)!==source.artifactHash||sourceBytes.length<33||!sourceBytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))||sourceBytes.readUInt32BE(16)!==source.width||sourceBytes.readUInt32BE(20)!==source.height)
+          throw new AppError('invalid_archive','The pending source image failed validation.',500);
+        writeImage(sourcePath,sourceBytes,source.artifactHash);
+      }
+      writeImage(expected,bytes,record.artifactHash);
       const completed={...run,status:'succeeded',assetId:record.id,completedAt:now(),error:null};delete completed.pendingOutput;
       this.transaction(()=>{
         const existing=this.db.prepare('SELECT payload FROM assets WHERE project_id=? AND id=?').get(projectId,record.id);
         if(existing){if(JSON.parse(existing.payload).contentHash!==record.contentHash)throw new AppError('invalid_archive','Asset identity already has different content.',500);}
         else{
           this.db.prepare('INSERT INTO assets VALUES (?,?,?,?,?,?,?,?)').run(record.id,projectId,record.parentId??null,run.id,record.setId,record.conceptId,record.briefId,JSON.stringify(record));
-          for(const reference of record.snapshot.references)this.db.prepare('INSERT INTO asset_links VALUES (?,?,?)').run(projectId,record.id,reference.id);
+          for(const referenceId of new Set([...record.snapshot.references.map(ref=>ref.id),record.branding?.logoId].filter(Boolean)))this.db.prepare('INSERT INTO asset_links VALUES (?,?,?)').run(projectId,record.id,referenceId);
         }
         this.saveRun(projectId,completed);
       });

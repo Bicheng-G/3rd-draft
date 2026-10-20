@@ -121,19 +121,23 @@ function usedSkills(value, found = new Set(), depth = 0) {
   }
   return found;
 }
-function validatePayload(value, projectId, ids, depth = 0) {
+function validatePayload(value, projectId, ids, depth = 0, location = '') {
   if (depth > 80) fail('invalid_backup', 'Backup records are nested too deeply.');
-  if (Array.isArray(value)) { value.forEach(item => validatePayload(item, projectId, ids, depth + 1)); return; }
+  if (Array.isArray(value)) { value.forEach(item => validatePayload(item, projectId, ids, depth + 1, location+'[]')); return; }
   if (!object(value)) return;
   for (const [key, item] of Object.entries(value)) {
     if (['projectId', 'project_id'].includes(key) && item !== projectId) fail('invalid_backup', 'A record refers to another project.');
     if (['apiKey', 'api_key', 'accessToken', 'access_token', 'refreshToken', 'refresh_token', 'authorization', 'cookie', 'credentials', 'password'].includes(key))
       fail('invalid_backup', 'Credential fields cannot be included in a project backup.');
-    if (payloadReferences[key] && item !== null) {
+    // Probe receipts and domain research records use different identities.
+    // Restrict this distinction to the two runtime-owned receipt locations.
+    const probeEvidence=key==='evidenceId'&&['runs.capabilitySnapshot.compatibility','runs.runtimeMetadata.compatibility'].includes(location);
+    if(probeEvidence&&!digest(item))fail('invalid_backup','A runtime compatibility evidence hash is invalid.');
+    if (payloadReferences[key] && item !== null && !probeEvidence) {
       for (const reference of Array.isArray(item) ? item : [item]) if (!ids[payloadReferences[key]].has(reference))
         fail('invalid_backup', `A ${key} reference is outside the backed-up project.`);
     }
-    validatePayload(item, projectId, ids, depth + 1);
+    validatePayload(item, projectId, ids, depth + 1, location+'.'+key);
   }
 }
 function validateLineages(records) {
@@ -192,7 +196,7 @@ function validateRecords(records, projectId) {
       const payload = parseJson(Buffer.from(row.payload), `${table} payload`);
       if (!object(payload) || payload.id !== row.id) fail('invalid_backup', `${table} payload identity does not match its row.`);
       if(table==='selections'&&(payload.setId??null)!==row.set_id)fail('invalid_backup','The selection payload set scope conflicts with its row.');
-      validatePayload(payload, projectId, ids);
+      validatePayload(payload, projectId, ids, 0, table);
       for (const [column, key] of Object.entries({ item_id: 'itemId', previous_id: 'previousId', parent_id: 'parentId', run_id: 'runId', set_id: 'setId', brief_id: 'briefId', request_id: 'requestId', request_hash: 'requestHash', status: 'status' }))
         if (row[column] !== undefined && Object.hasOwn(payload, key) && payload[key] !== row[column]) fail('invalid_backup', `${table}.${key} conflicts with its row.`);
       for (const skillId of usedSkills(payload)) {
@@ -222,6 +226,15 @@ function expectedFiles(records, projectId) {
     if (parts.length !== 5 || parts[0] !== 'projects' || parts[1] !== projectId || parts[2] !== 'assets' || parts[3] !== row.id || parts[4] !== (table === 'assets' ? 'image.png' : 'draft.md'))
       fail('unsafe_backup_path', 'An artifact file is outside its project and immutable asset directory.');
     add(relative, payload.artifactHash);
+    if(table==='assets'&&payload.productionSource){
+      const source=payload.productionSource,owner=records.assets.find(item=>item.id===source.assetId);
+      if(!owner)fail('invalid_backup','A production source owner is missing.');
+      const owned=JSON.parse(owner.payload).productionSource;
+      const expected=`projects/${projectId}/assets/${owner.id}/source.png`;
+      if(source.artifactPath?.replaceAll('\\','/')!==expected||owned?.assetId!==owner.id||owned?.artifactHash!==source.artifactHash)
+        fail('invalid_backup','A production source does not match its immutable owner.');
+      add(expected,source.artifactHash);
+    }
   }
   for (const row of records.skill_packages) {
     const record = JSON.parse(row.payload);
