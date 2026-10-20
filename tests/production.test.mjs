@@ -174,4 +174,13 @@ test('production HTTP action enforces session authorization and exposes an archi
   assert.equal(run.status,'succeeded');assert.equal(run.pendingOutput,undefined);assert.equal(runtime.calls.length,1);
   const memory=await (await fetch(`${app.url}/api/projects/${project.id}`,{headers:{cookie}})).json();
   assert.equal(memory.assets.find(a=>a.role!=='logo').id,run.assetId);assert.deepEqual(memory.selections.filter(s=>s.decision!=='brand_logo'),[]);
+  const layoutUrl=`${app.url}/api/projects/${project.id}/assets/${run.assetId}/logo-layout`;
+  const body=JSON.stringify({logoId:logo.id,logoLayout:{mode:'overlay',position:'top-left',widthPercent:20}});
+  assert.equal((await fetch(layoutUrl+'/preview',{method:'POST',headers:{'content-type':'application/json'},body})).status,401);
+  const headers={cookie,'content-type':'application/json','x-csrf-token':csrfToken};
+  const preview=await fetch(layoutUrl+'/preview',{method:'POST',headers,body});assert.equal(preview.status,200);
+  const previewData=await preview.json();assert.equal(app.store.rows('assets',project.id).length,2);
+  const laidOut=await fetch(layoutUrl,{method:'POST',headers,body});assert.equal(laidOut.status,201);
+  const version=await laidOut.json();assert.equal(version.parentId,run.assetId);assert.equal(version.change,'logo_layout');
+  assert.equal(version.artifactHash,hash(Buffer.from(previewData.imageBase64,'base64')));assert.equal(runtime.calls.length,1);
 });

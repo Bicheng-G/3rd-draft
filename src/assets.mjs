@@ -28,6 +28,31 @@ export async function normalizeImage(bytes) {
 }
 function escaped(value){return value.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function brandHash(store,projectId){return hash([...new Map(store.rows('knowledge',projectId).filter(k=>k.kind==='brand'&&k.status==='confirmed').map(k=>[k.itemId,k.id])).values()]);}
+export function logoLayout(input={mode:'overlay',position:'bottom-right',widthPercent:22}){
+  if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(key=>!['mode','position','widthPercent'].includes(key))||
+    !['overlay','footer'].includes(input.mode)||!['top-left','top-right','bottom-left','bottom-right','bottom-center'].includes(input.position)||
+    !Number.isFinite(input.widthPercent)||input.widthPercent<10||input.widthPercent>40)
+    throw new AppError('invalid_logo_layout','Choose a logo layout, position, and width from 10% to 40%.');
+  return {mode:input.mode,position:input.position,widthPercent:input.widthPercent};
+}
+async function composeBranding(normalized,logoBytes,logo,layout){
+  const {width,height}=normalized;
+  if(width<16||height<16)throw new AppError('invalid_image','The image is too small for legible branding.');
+  const footer=layout.mode==='footer'?Math.max(4,Math.round(height*0.16)):0;
+  const margin=Math.max(1,Math.round(Math.min(width,height)*0.04));
+  const padding=footer?Math.max(1,Math.round(footer*0.15)):margin;
+  const layer=await sharp(logoBytes).resize({width:Math.max(1,Math.floor(width*layout.widthPercent/100)),
+    height:Math.max(1,footer?footer-padding*2:Math.floor(height*0.2)),fit:'inside',withoutEnlargement:true}).png().toBuffer({resolveWithObject:true});
+  const centered=layout.position==='bottom-center';
+  const placement={left:centered?Math.floor((width-layer.info.width)/2):layout.position.endsWith('left')?margin:width-margin-layer.info.width,
+    top:footer?height-footer+Math.floor((footer-layer.info.height)/2):layout.position.startsWith('top')?margin:height-margin-layer.info.height,
+    width:layer.info.width,height:layer.info.height};
+  const base=footer?await sharp({create:{width,height,channels:4,background:'#ffffff'}}).composite([{
+    input:await sharp(normalized.bytes).resize(width,height-footer,{fit:'contain',background:'#ffffff'}).png().toBuffer(),left:0,top:0}]).png().toBuffer():normalized.bytes;
+  const bytes=await sharp(base).composite([{input:layer.data,left:placement.left,top:placement.top}]).png().toBuffer();
+  if(bytes.length>IMAGE_LIMITS.bytes)throw new AppError('invalid_image','The branded image exceeds the archive size limit.');
+  return {bytes,branding:{policy:'official-logo-layout-v1',logoId:logo.id,logoHash:logo.artifactHash,layout,placement,layerHash:hash(layer.data)}};
+}
 export class AssetService {
   constructor(store){this.store=store;}
   brandLogo(projectId){
@@ -87,29 +112,22 @@ export class AssetService {
     const confirmedBrand=[...new Map(this.store.rows('knowledge',projectId).filter(k=>k.kind==='brand'&&k.status==='confirmed').map(k=>[k.itemId,k])).values()];
     // Explicit references are separate from both the brief's historical asset
     // list and the prior AssetVersion being revised.
-    return {...snapshot,projectId,parent:parent?reference(parent):null,references,confirmedBrand,logo:reference(logo),
+    return {...snapshot,projectId,parent:parent?reference(parent):null,references,confirmedBrand,logo:reference(logo),logoLayout:logoLayout(input.logoLayout),
       instruction:input.instruction,capturedAt:now(),maxImageOperations:2};
   }
   async productionOutput(projectId,run,normalized){
     const snapshot=run.context.productionSnapshot;
     const logo=this.store.record('assets',projectId,snapshot.logo.id),logoBytes=this.read(projectId,logo.id);
     if(logo.artifactHash!==snapshot.logo.artifactHash)throw new AppError('invalid_archive','The frozen logo hash changed.',500);
-    // Keep the full model image as an immutable source. A separate white footer
-    // contains only deterministic logo pixels; neither crop nor redraw the logo.
+    // Keep the full source immutable; layout changes never send the logo to a model.
     const width=normalized.width,height=normalized.height;
-    if(width<16||height<16)throw new AppError('invalid_image','The generated image is too small for legible branding.');
-    const footer=Math.max(4,Math.round(height*0.16)),padding=Math.max(1,Math.round(footer*0.15));
-    const layer=await sharp(logoBytes).resize({width:Math.max(1,Math.floor(width*0.4)),height:Math.max(1,footer-padding*2),fit:'inside',withoutEnlargement:true}).flatten({background:'#ffffff'}).png().toBuffer({resolveWithObject:true});
-    const placement={left:Math.floor((width-layer.info.width)/2),top:height-footer+Math.floor((footer-layer.info.height)/2),width:layer.info.width,height:layer.info.height};
-    const visual=await sharp(normalized.bytes).resize(width,height-footer,{fit:'contain',background:'#ffffff'}).png().toBuffer();
-    const bytes=await sharp({create:{width,height,channels:4,background:'#ffffff'}}).composite([{input:visual,left:0,top:0},{input:layer.data,left:placement.left,top:placement.top}]).png().toBuffer();
-    if(bytes.length>IMAGE_LIMITS.bytes)throw new AppError('invalid_image','The branded image exceeds the archive size limit.');
+    const {bytes,branding}=await composeBranding(normalized,logoBytes,logo,logoLayout(snapshot.logoLayout));
     const record={id:id(),name:snapshot.concept.title,source:'Third Draft native ChatGPT image production',method:'native',role:'work',
       parentId:snapshot.parent?.id??null,runId:run.id,setId:snapshot.setId,briefId:snapshot.briefId,conceptId:snapshot.conceptId,
       snapshot,caption:snapshot.concept.body,style:snapshot.brief.style,change:snapshot.parent?'instruction_edit':'generation',
       instruction:snapshot.instruction,createdBy:'runtime',mime:'image/png',width:normalized.width,height:normalized.height,
       inputHash:normalized.inputHash,createdAt:now(),schemaVersion:3,
-      branding:{policy:'official-logo-footer-v1',logoId:logo.id,logoHash:logo.artifactHash,placement,layerHash:hash(layer.data)},
+      branding,
       machineChecks:{decoded:true,metadataRemoved:true,nativeFileVerified:true,logoUncropped:true,officialLogoComposited:true}};
     record.artifactPath=path.join('projects',projectId,'assets',record.id,'image.png');
     record.productionSource={assetId:record.id,artifactPath:path.join('projects',projectId,'assets',record.id,'source.png'),artifactHash:hash(normalized.bytes),width,height};
@@ -134,6 +152,22 @@ export class AssetService {
     const previous=this.store.record('assets',projectId,assetId),normalized=await normalizeImage(this.read(projectId,assetId));
     const {id:oldId,artifactPath,artifactHash,contentHash,createdAt,...fields}=previous;
     return this.save(projectId,normalized,{...fields,name:previous.name,parentId:previous.id,caption:text(input.caption,'Caption',8000),change:'caption_only',createdBy:'user'});
+  }
+  async layout(projectId,assetId,input,{preview=false}={}){
+    this.store.assertWritable(projectId);
+    if(Object.keys(input).some(key=>!['logoId','logoLayout'].includes(key))||!input.logoLayout)
+      throw new AppError('invalid_logo_layout','Choose the layout for this image.');
+    const previous=this.store.record('assets',projectId,assetId);
+    if(previous.method!=='native')throw new AppError('invalid_input','Logo layout requires a native image with a saved source.');
+    this.store.writableSet(projectId,previous.setId);
+    const logo=this.requireLogo(projectId,input.logoId),layout=logoLayout(input.logoLayout);
+    const normalized=await normalizeImage(this.readProductionSource(projectId,previous.id));
+    const {bytes,branding}=await composeBranding(normalized,this.read(projectId,logo.id),logo,layout);
+    if(preview)return {imageBase64:bytes.toString('base64'),width:normalized.width,height:normalized.height,branding};
+    const {id:oldId,artifactPath,artifactHash,contentHash,createdAt,...fields}=previous;
+    return this.save(projectId,{...normalized,bytes,inputHash:hash({source:previous.productionSource.artifactHash,logo:logo.artifactHash,layout,parentAssetId:previous.id})},
+      {...fields,source:'Third Draft local logo layout over a native image',parentId:previous.id,change:'logo_layout',createdBy:'user',branding,
+        machineChecks:{...previous.machineChecks,officialLogoComposited:true,logoUncropped:true}});
   }
   async compose(projectId,input){
     this.store.assertWritable(projectId);const snapshot=this.snapshot(projectId,input),visual=this.store.record('assets',projectId,input.visualId),logo=this.requireLogo(projectId,input.logoId);

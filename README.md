@@ -2,7 +2,7 @@
 
 A local creative workspace for project knowledge, sources, insights, ideas, reusable creative sets, images, and feedback. The product interface is English; each task chooses its own output language.
 
-**Current milestone (2026-10-20): official logo integration implemented and exercised on RidePass.** One real generation and one instruction edit preserve the uploaded logo through local composition; private backup/restore and all 140 regression tests pass. The images remain drafts pending owner adoption. Full V1 remains unaccepted; see [current evidence and remaining gates](docs/product/validation-v1.md#正式-logo-与-ridepass-工作流2026-10-20).
+**Current milestone (2026-10-20): official logo integration and per-image layout implemented and exercised on RidePass.** One real generation, one instruction edit, and a local transparent-overlay version preserve the uploaded logo; private backup/restore and all 142 regression tests pass. The images remain drafts pending review and owner adoption. Full V1 remains unaccepted; see [current evidence and remaining gates](docs/product/validation-v1.md#正式-logo-与-ridepass-工作流2026-10-20).
 
 **Historical v0.1 final acceptance: PASS WITH NON-BLOCKING LIMITATIONS.** [Real RidePass dogfooding](docs/product/validation-v0.1.md#ridepass-最终-dogfood2026-10-05) verified that a saved creative judgement influenced a separate task after a service restart, without being restated, and reached a newly archived image. Two real text runs and two image actions succeeded; all 132 regression tests passed. The owner subsequently authorized the logo and workflow work above.
 
@@ -36,7 +36,7 @@ Native production uses an application-authored tool call on a local Responses tr
 
 ## Use the workspace
 
-Official logos: import an image as **Logo** in Knowledge → Images, then explicitly choose **Use as official logo**. Generation, instruction edits, and local composition require this selection. Native production saves an unbranded source and adds the exact uploaded logo in a white footer locally. Edits use the source and reapply the current logo; originals remain unchanged. Older native images without a saved source need a new generation. Check for extra or invented brand marks before adoption. Changing the official logo requires a new image version for final delivery. Private backups include the editable source; delivery ZIPs do not.
+Official logos: import an image as **Logo** in Knowledge → Images, then explicitly choose **Use as official logo**. Generation, instruction edits, and local composition require this selection. Choose the logo position and size for each native image. The default overlays the uploaded logo on the full image, preserving its transparency; a white footer is optional. **Adjust logo** previews and saves a new layout version locally without a model call. Edits use the saved unbranded source and reapply the current logo; originals remain unchanged. Older native images without a saved source need a new generation. Check for extra or invented brand marks before adoption. Changing the official logo requires a new image version for final delivery. Private backups include the editable source; delivery ZIPs do not.
 
 1. Create a project. In **Knowledge**, import text/Markdown or images and save references. Brand facts remain drafts until you explicitly confirm them. Image extraction produces a draft too.
 2. Save research observations or explicitly read one public source URL. Select evidence to synthesize an insight. Creative tasks never start new research automatically.

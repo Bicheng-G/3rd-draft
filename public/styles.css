@@ -1573,6 +1573,9 @@ input[type=file]::file-selector-button {
 .image-card .asset-preview {
   margin-bottom:18px;
 }
+.logo-layout-preview {
+  height:min(60vh,480px);
+}
 .image-card h3 {
   margin:0 0 7px;
 }

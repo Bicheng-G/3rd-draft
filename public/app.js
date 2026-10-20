@@ -622,6 +622,52 @@ async function designateLogo(asset) {
   if (projectId === state.projectId) notify(`${asset.name} is the official logo for new images. Earlier versions are preserved.`);
 }
 
+function addLogoLayoutFields(fields, asset = null) {
+  const current = asset?.branding?.layout || (asset?.branding?.policy === 'official-logo-footer-v1'
+    ? { mode: 'footer', position: 'bottom-center', widthPercent: 40 } : { mode: 'overlay', position: 'bottom-right', widthPercent: 22 });
+  addField(fields, 'Logo layout', 'logoMode', current.mode, { required: true, options: [
+    { value: 'overlay', label: 'Overlay on the full image' }, { value: 'footer', label: 'White footer' },
+  ], hint: 'Overlay preserves the full image. A footer fits the image above a white band.' });
+  addField(fields, 'Logo position', 'logoPosition', current.position, { required: true, options: [
+    { value: 'top-left', label: 'Top left' }, { value: 'top-right', label: 'Top right' },
+    { value: 'bottom-left', label: 'Bottom left' }, { value: 'bottom-center', label: 'Bottom center' }, { value: 'bottom-right', label: 'Bottom right' },
+  ], hint: 'The footer uses the selected horizontal alignment. Check contrast and avoid covering the subject or text.' });
+  addField(fields, 'Logo width (% of image)', 'logoWidthPercent', current.widthPercent, { required: true, type: 'number', min: 10, max: 40,
+    hint: '10–40%. The original proportions and transparency are preserved; small logos are not enlarged.' });
+}
+
+function readLogoLayout(form) {
+  const values = formValues(form);
+  return { mode: values.logoMode, position: values.logoPosition, widthPercent: Number(values.logoWidthPercent) };
+}
+
+function adjustLogo(asset) {
+  const logo = officialLogo(), projectId = state.projectId;
+  if (!logo) { notify('Choose an official logo in Knowledge → Images first.', true); return; }
+  const editor = openEditor('Adjust logo for this image', 'Choose the position and size for this version. Preview and save use the original visual and the official logo locally, without a model call. Saving creates a new draft; earlier versions stay intact.', 'Save layout version', async form => {
+    await api(`${projectPath(projectId)}/assets/${asset.id}/logo-layout`, { logoId: logo.id, logoLayout: readLogoLayout(form) });
+    await refreshProject(projectId);
+    if (projectId === state.projectId) notify('Logo layout saved as a new draft. Review this version before adoption.');
+  });
+  addLogoLayoutFields(editor.fields, asset);
+  const preview = imagePreview(asset, 'asset-preview logo-layout-preview'), status = el('p', 'field-hint', 'Current saved version. Preview your changes before saving.');
+  status.setAttribute('role', 'status');
+  const refresh = button('Preview layout', 'button secondary', async () => {
+    if (!editor.form.reportValidity()) return;
+    refresh.disabled = true; status.textContent = 'Preparing local preview…';
+    const layout = readLogoLayout(editor.form);
+    try {
+      const result = await api(`${projectPath(projectId)}/assets/${asset.id}/logo-layout/preview`, { logoId: logo.id, logoLayout: layout });
+      if (!editor.form.isConnected || JSON.stringify(layout) !== JSON.stringify(readLogoLayout(editor.form))) return;
+      preview.src = `data:image/png;base64,${result.imageBase64}`;
+      status.textContent = 'Preview of the selected layout. No image version has been saved yet.';
+    } catch (error) { status.textContent = errorMessage(error); }
+    finally { refresh.disabled = false; }
+  });
+  editor.fields.addEventListener('input', () => { status.textContent = 'Layout changed. Refresh the preview to inspect it.'; });
+  editor.fields.append(refresh, status, preview);
+}
+
 function filterAssets(assets, filters) {
   return assets.filter((asset) => (!filters.style || asset.style === filters.style) && (filters.adoption === 'all' || (filters.adoption === 'not_adopted' ? assetDecision(asset) !== 'adopted' : assetDecision(asset) === filters.adoption)));
 }
@@ -663,15 +709,16 @@ function produceImage(set, previous = null) {
   if (!set.conceptIds.length) { notify('Add an idea version to this set before generating an image.', true); return; }
   const limit = previous ? 4 : 5;
   const editor = openEditor(previous ? 'Edit this image as a new version' : 'Generate an image',
-    `${previous ? 'Edit the saved visual; the original version is preserved.' : 'Choose an idea version and the references to use.'} The official logo is added locally in a white footer, preserving its proportions. Starting authorizes this production action through your ChatGPT subscription, with at most two image operations. Review the saved result before adoption.`,
+    `${previous ? 'Edit the saved visual; the original version is preserved.' : 'Choose an idea version and the references to use.'} Choose the logo layout for this image; the official file is added locally with its proportions and transparency preserved. Starting authorizes this production action through your ChatGPT subscription, with at most two image operations. Review the saved result before adoption.`,
     previous ? 'Start image edit' : 'Start image generation', async form => {
       const referenceAssetIds = chosenValues(form, 'referenceAssetIds');
       if (referenceAssetIds.length > limit) throw new Error(`Select at most ${limit} additional references.`);
       const values = formValues(form);
       await submitRun({ setId: set.id, conceptId: previous?.conceptId || values.conceptId,
-        referenceAssetIds, logoId: logo.id, instruction: values.instruction || '', ...(previous ? { parentAssetId: previous.id } : {}) }, { production: true });
+        referenceAssetIds, logoId: logo.id, logoLayout: readLogoLayout(form), instruction: values.instruction || '', ...(previous ? { parentAssetId: previous.id } : {}) }, { production: true });
     });
   editor.fields.append(imagePreview(logo), el('p', 'source-strip', `Official logo: ${logo.name}`));
+  addLogoLayoutFields(editor.fields, previous);
   if (previous) editor.fields.append(el('p', 'source-strip', `Original version: ${previous.name}`));
   else {
     const select = addField(editor.fields, 'Idea version', 'conceptId', '', { required: true, options: [] });
@@ -761,7 +808,7 @@ function assetCard(asset, set) {
   const selections = state.data.selections.filter((record) => record.targetType === 'asset' && record.targetId === asset.id);
   const adopted = selections.filter((record) => ['adopted', 'rejected'].includes(record.decision)).at(-1)?.decision === 'adopted';
   const publication = selections.filter((record) => ['published', 'unpublished'].includes(record.decision)).at(-1)?.decision;
-  const meta = el('div', 'card-topline'); meta.append(el('span', 'badge', adopted ? 'Adopted version' : 'Draft version'), el('span', 'card-meta', dateLabel(asset.createdAt))); content.append(meta, el('h3', '', asset.name), el('p', 'card-meta', `${asset.width} × ${asset.height} · ${asset.method === 'native' ? 'Native generated image' : asset.method === 'layered' ? 'Local template composition' : 'Imported image'}${asset.change === 'caption_only' ? ' · Caption edit' : asset.change === 'instruction_edit' ? ' · Instruction edit' : ''}`));
+  const meta = el('div', 'card-topline'); meta.append(el('span', 'badge', adopted ? 'Adopted version' : 'Draft version'), el('span', 'card-meta', dateLabel(asset.createdAt))); content.append(meta, el('h3', '', asset.name), el('p', 'card-meta', `${asset.width} × ${asset.height} · ${asset.method === 'native' ? 'Native generated image' : asset.method === 'layered' ? 'Local template composition' : 'Imported image'}${asset.change === 'caption_only' ? ' · Caption edit' : asset.change === 'instruction_edit' ? ' · Instruction edit' : asset.change === 'logo_layout' ? ' · Local logo layout' : ''}`));
   if (publication) content.append(el('p', 'field-hint', `Manually marked ${publication}.`));
   if (asset.briefId !== set.currentBriefId) content.append(el('p', 'notice error', 'This image uses an earlier brief. Produce a new version under the current brief before adoption.'));
   if (asset.caption) content.append(el('p', 'work-body asset-caption', asset.caption));
@@ -769,6 +816,7 @@ function assetCard(asset, set) {
   actions.append(assetFileLink(asset), projectButton('Edit caption', 'button secondary', () => editCaption(asset)), runtimeButton('Run review', () => assetTask(asset, 'review_asset')), projectButton('Feedback', 'text-button', () => assetFeedback(asset)));
   if (asset.composition) actions.append(projectButton('Recompose', 'text-button', () => composeImage(set, asset)));
   if (asset.method === 'native') actions.append(productionButton('Edit image', () => produceImage(set, asset)));
+  if (asset.method === 'native' && asset.productionSource) actions.append(projectButton('Adjust logo', 'button secondary', () => adjustLogo(asset)));
   const reviews = state.data.reviews.filter((review) => review.assetId === asset.id);
   const unresolved = reviews.some((review) => review.issues.some((issue) => ['blocker', 'unable_to_judge'].includes(issue.severity) && !selections.some((record) => record.decision === 'issue_resolved' && record.reviewId === review.id && record.issueId === issue.id)));
   const adopt = projectButton(adopted ? 'Adoption recorded' : 'Adopt version', 'button primary', () => selectAsset(asset, 'adopted'));

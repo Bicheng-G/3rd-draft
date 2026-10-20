@@ -2,6 +2,8 @@
 
 2026-10-20 补充（ADR-018）：正式 logo 由项目作用域的用户 `brand_logo` selection 指向一个上传资产版本；不从上传顺序推断。ProductionSnapshot 固定 logo id/hash；AssetVersion.branding 与 asset_links 保留该依赖。原生资产另外保存不可变 `productionSource`（同项目 owner、source.png、哈希和尺寸），caption 版本可引用原 owner，编辑只能读取此底图再合成当前 logo。完整私有备份包含底图；成品 ZIP 只含成品与 caption，不包含底图或内部快照。旧版本无底图不伪造数据或覆盖文件。
 
+逐图排版补充：原生制作 snapshot 还冻结 `logoLayout`；`branding.layout` 记录当前版本的叠加/底栏、位置和尺寸。本地 `change=logo_layout` 新版以此前图片为 parent、复用其 productionSource owner，原生 snapshot/runId 继续表示底图来源；新 logo/layout/hash 在 branding，不能把继承的 runId 当作又发生一次原生调用。预览不归档；排版新版不继承 Review/采用。透明叠加不改变标识范围外的底图像素。
+
 状态：v0.1 契约 · 2026-10-02，含 Living Project 补充。适用于 [FR-01～FR-16、FR-19～FR-20](../product/prd-v0.1.md)。
 
 实施注记：v0.1 文字子集见 ADR-013；后续 V1 扩展见 [ADR-014](decisions.md#adr-014--v1-沿用本地领域模型扩展版本化创作与受限视觉输入)。SQLite 关系键带 project scope；知识确认产生新版本，选取每个知识项最近的已确认品牌版本，未确认的新草稿不替换旧事实。证据与洞察分开保存身份、版本、来源、假设及反例；过期支持资料默认不自动复用。创意版本固定 parent/idea/run 引用，可手工创建、批量生成及跨 set 关联；收藏独立于创意，采用与发布记录独立。默认反馈只用于指定版本及显式续作的祖先链；asset/set/style/brand/project 范围必须显式指定。当前品牌约束最多 12 条并完整保留，关键词自动检索最多 5 条参考、3 条洞察及其证据、3 条额外相关证据、2 条相关创意和 6 条适用反馈；另加明确选中的前作/图片/brief，以及所选手工创意固定引用的最多 12 条洞察及其支持证据和最多 12 条直接证据；未选原因记录在 manifest。旧事实变化产生提示，旧 context 不改。没有语义检索、自动推断品牌偏好或效果学习。完整实体图仍是设计，不表示所有实体已分别落表；实际文件与关系见 V1 验证记录。

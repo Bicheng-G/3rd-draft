@@ -4,11 +4,13 @@
 
 2026-10-20，用户授权推进 logo 与真实工作流；工程取舍由本次受托实施者作出。真实问题：可选参考/prompt 无法保证正式标识不被模型重绘，编辑成品还会把 logo 再次交给模型。复用现有不可变资产、项目作用域 selections、ProductionSnapshot 与 asset_links，不增加项目配置副本或新的编排框架。
 
-`brand_logo` 是用户明确选择一个上传 logo 版本的事件；项目内最后一项为当前选择，历史事件保留。制作在任何 runtime inspection 前解析并校验 logo，快照记录 id/hash；UI 发送当前看到的 logoId，服务拒绝提交前已变更的选择。调用启动后的选择变更不改在途快照。logo 与已合成品牌成品不作为原生参考图；模型只处理视觉底图，应用在白色页脚确定性缩放合成正式 logo，保持画布尺寸、视觉比例与完整标识。
+`brand_logo` 是用户明确选择一个上传 logo 版本的事件；项目内最后一项为当前选择，历史事件保留。制作在任何 runtime inspection 前解析并校验 logo，快照记录 id/hash；UI 发送当前看到的 logoId，服务拒绝提交前已变更的选择。调用启动后的选择变更不改在途快照。logo 与已合成品牌成品不作为原生参考图；模型只处理视觉底图，应用确定性缩放合成正式 logo，保持画布尺寸、视觉比例、完整标识及透明通道。
 
 原生资产的 `productionSource` 指向同资产目录 `source.png`（原生规范化底图）及哈希；`image.png` 是合成成品，`branding` 记录政策、logo/hash、位置与图层 hash。底图与成品都先写入可恢复的待归档载荷，再本地落盘及同事务保存资产/依赖/run。重试只做本地归档。caption 新版引用原底图 owner；后续编辑读取底图、合成当前 logo，parent 仍指上一作品版本。备份显式枚举并校验 source 文件及其同项目 owner，恢复后不依赖 provider 历史。数据库 schema 仍为 3；旧 payload/文件不改，旧原生图因无底图不能直接 Edit。
 
-模板也使用项目正式 logo；已完成作品不因换 logo 被重写，但采用和最终导出要求当前 logo 版本。机器合成只证明正确标识被加入，不能证明底图未出现额外假标识；最终采用增加人工检查声明，不让 Reviewer 自评代替。布局固定、无交互画布，不承诺原生图片整体排版可任意调整。
+初版固定白色底栏仅为技术样例，用户后继明确要求逐图决定位置/大小，保留底栏可选。`branding.layout` 保存 mode/position/widthPercent；原生快照锁定制作时的选择，后续本地 logo_layout 新版则保留原生 snapshot 作为底图来源，并独立记录新排版。一个合成函数服务原生输出、本地预览和保存，避免前端复制像素规则。overlay 不缩放底图、不铺白色矩形；footer 显式选择时才适配视觉。预览不存记录，保存复用不可变资产和原底图 owner、不派发模型调用。五位置与比例控件不是自由拖拽画布，不为未来边框先建插件框架。
+
+模板也使用项目正式 logo；已完成作品不因换 logo 被重写，但采用和最终导出要求当前 logo 版本。机器合成只证明正确标识被加入，不能证明底图未出现额外假标识；最终采用增加人工检查声明，不让 Reviewer 自评代替。新排版版本不继承旧 Review/采用结论。
 
 实测前备份发现既有字段重名缺陷：runtime 的 `capabilitySnapshot.compatibility.evidenceId` / `runtimeMetadata.compatibility.evidenceId` 是探针 SHA-256，不是研究记录 UUID。备份校验仅在这两个明确位置使用哈希规则，研究 context 的 evidenceId 仍必须引用本项目证据。没有全局忽略同名字段或降低外键约束。验证结果见 V1 记录。
 

@@ -122,3 +122,48 @@ test('review receives the actual official logo and branding provenance alongside
   assert.equal(JSON.parse(entry.content).branding.logoHash,logo.artifactHash);
   assert.ok(context.entries.find(item=>item.id===logo.id).reason.includes('official logo'));
 });
+
+test('transparent overlay preserves the source outside the mark; preview and local layout save never call a model',async t=>{
+  const f=await fixture(t);
+  const transparentLogo=await sharp({create:{width:100,height:30,channels:4,background:{r:0,g:0,b:0,alpha:0}}})
+    .composite([{input:await sharp({create:{width:30,height:15,channels:4,background:'#dd2200'}}).png().toBuffer(),left:0,top:0}]).png().toBuffer();
+  const logo=await f.importLogo(f.project.id,transparentLogo);f.assets.designateLogo(f.project.id,logo.id);
+  const first=await f.produce(),original=f.assets.read(f.project.id,first.id),count=f.store.rows('assets',f.project.id).length;
+  const input={logoId:logo.id,logoLayout:{mode:'overlay',position:'top-left',widthPercent:25}};
+  const preview=await f.assets.layout(f.project.id,first.id,input,{preview:true});
+  assert.equal(f.store.rows('assets',f.project.id).length,count);assert.equal(f.runtime.calls.length,1);
+  const next=await f.assets.layout(f.project.id,first.id,input);
+  assert.deepEqual(f.assets.read(f.project.id,next.id),Buffer.from(preview.imageBase64,'base64'));
+  assert.equal(next.width,400);assert.equal(next.height,400);assert.equal(next.parentId,first.id);
+  assert.equal(next.change,'logo_layout');assert.equal(next.productionSource.assetId,first.id);
+  assert.deepEqual(f.assets.readProductionSource(f.project.id,next.id),visual);
+  assert.deepEqual(f.assets.read(f.project.id,first.id),original);assert.equal(f.runtime.calls.length,1);
+  const raw=await sharp(f.assets.read(f.project.id,next.id)).ensureAlpha().raw().toBuffer();
+  const source=await sharp(visual).ensureAlpha().raw().toBuffer(),{left,top,width,height}=next.branding.placement;
+  let changed=0;
+  for(let y=0;y<400;y++)for(let x=0;x<400;x++){
+    const index=(y*400+x)*4,actual=raw.subarray(index,index+4),before=source.subarray(index,index+4);
+    if(!actual.equals(before)){changed++;assert.ok(x>=left&&x<left+width&&y>=top&&y<top+height);}
+  }
+  assert.equal(changed,30*15);
+  assert.deepEqual(raw.subarray(((top+height-1)*400+left+width-1)*4,((top+height-1)*400+left+width-1)*4+4),source.subarray(0,4));
+  const archive=exportProject(f.store,new SkillLibrary(f.store),f.project.id),destination=path.join(f.directory,'overlay-restored');
+  restoreProject(archive,destination);const restored=new Store(destination);
+  try{const assets=new AssetService(restored);assert.deepEqual(assets.read(f.project.id,next.id),f.assets.read(f.project.id,next.id));assert.deepEqual(assets.readProductionSource(f.project.id,next.id),visual);}
+  finally{restored.close();}
+});
+
+test('layout choices are validated before dispatch; a white footer remains an explicit option',async t=>{
+  const f=await fixture(t),logo=await f.importLogo();f.assets.designateLogo(f.project.id,logo.id);
+  for(const layout of [null,{mode:'unknown',position:'bottom-right',widthPercent:22},{mode:'overlay',position:'offscreen',widthPercent:22},{mode:'overlay',position:'bottom-left',widthPercent:41}]){
+    await assert.rejects(f.service.startProduction(f.project.id,f.input({logoLayout:layout})),{code:'invalid_logo_layout'});
+  }
+  assert.equal(f.runtime.inspections,0);assert.equal(f.runtime.calls.length,0);
+  const first=await f.produce({logoLayout:{mode:'overlay',position:'bottom-left',widthPercent:10}});
+  assert.equal(first.snapshot.logoLayout.widthPercent,10);assert.equal(first.branding.placement.width,40);
+  const footer=await f.assets.layout(f.project.id,first.id,{logoLayout:{mode:'footer',position:'bottom-center',widthPercent:25}});
+  assert.equal(footer.branding.layout.mode,'footer');assert.equal(footer.width,first.width);assert.equal(footer.height,first.height);
+  const corner=await sharp(f.assets.read(f.project.id,footer.id)).extract({left:0,top:399,width:1,height:1}).removeAlpha().raw().toBuffer();
+  assert.deepEqual([...corner],[255,255,255]);assert.equal(f.runtime.calls.length,1);
+  assert.equal(f.assets.adoptionIssues(f.project.id,footer.id).some(issue=>issue.code==='review_required'),true);
+});

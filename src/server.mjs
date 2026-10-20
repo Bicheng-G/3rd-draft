@@ -100,6 +100,8 @@ export async function startServer({dataDir,port=4057,runtime,imageRuntime,lock=t
         if(req.method==='GET'&&image){const content=assetService.read(projectId,image[1]);res.writeHead(200,{'Content-Type':'image/png'});res.end(content);return;}
         const caption=tail.match(/^assets\/([^/]+)\/caption$/);
         if(req.method==='POST'&&caption)return send(201,await assetService.caption(projectId,caption[1],await jsonBody(req)));
+        const layout=tail.match(/^assets\/([^/]+)\/logo-layout(\/preview)?$/);
+        if(req.method==='POST'&&layout)return send(layout[2]?200:201,await assetService.layout(projectId,layout[1],await jsonBody(req),{preview:Boolean(layout[2])}));
         const resolveReview=tail.match(/^reviews\/([^/]+)\/resolve$/);
         if(req.method==='POST'&&resolveReview)return send(201,assetService.resolve(projectId,resolveReview[1],await jsonBody(req)));
         const exportSet=tail.match(/^sets\/([^/]+)\/export$/);
