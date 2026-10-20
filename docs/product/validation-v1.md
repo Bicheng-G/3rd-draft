@@ -4,6 +4,19 @@
 
 2026-10-05 后继任务仅做 v0.1 最终验收，RidePass 实际项目 dogfood 结论 **PASS WITH NON-BLOCKING LIMITATIONS**：保存的图片判断经重启后独立构思复用，影响新文案/视觉方向/归档图片，新增 2 次文字与 2 次图片均成功，132 项回归通过，无产品代码修复。六项关闭标准、原生证据复用与剩余限制见 [v0.1 最终记录](validation-v0.1.md#ridepass-最终-dogfood2026-10-05)。该结果不关闭本页完整 V1 的质量/用户采用/发布门槛，本轮不继续 V1。
 
+## Dogfood 后当前 V1 差距（2026-10-06）
+
+本节是只读现状核对与新需求记录，**未执行新的工程/模型验收，未实施 logo 修复，未重开 containment 调查**。检查基线 `2fa9295199d46e6e9df1af5a0ff04fdd226d8a19`，`codex/production-loop-feasibility`，开工 staged/unstaged/untracked 均干净。不能从下方历史 NOT_RUN/旧 BLOCKED 表推断这些功能现在仍未实现。
+
+| 项 | 当前证据与真实差距 | V1 尚需完成 |
+|---|---|---|
+| 正式品牌 logo | `public/app.js` 的 Knowledge/Studio 导入表单支持 Use as → Logo；`src/assets.mjs` 本地模板读取上传图片、contain 缩放并记录 logoId/哈希依赖。native productionSnapshot 只含显式可选 references，没有必需或项目默认 logo，UI 可零参考开始。RidePass 图中的生成标识不是已上传正式 logo | 按用户 2026-10-06 新要求补齐 FR-02/07/08/09：上传/明确指定、所有生成与编辑作品使用真实标识、不许模型自造/重绘、缺失阻止及版本/像素验证。prompt 或可选 reference 不能当保证；这是 V1 功能缺口 |
+| 完整真实工作流 | 已有 Paid/Organic、研究/洞察、收藏、模板、Review/采用/交付、备份工程实现；历史真实五任务/备份和受控故障、当前原生 Generate/Edit、RidePass 跨次复用分别有受限证据 | 两个真实品牌各 Paid/Organic 的生成/修改/Review/用户采用/交付/恢复，以及研究→洞察→收藏→重启后另一个收藏续作；逐 AC/T 补真实覆盖或修具体缺陷，不重做已有模块 |
+| 质量与人工操作收益 | RidePass 证明一个真实样本的记忆影响；用户本轮认为结果不错。未完成 12 brief 配对视觉、主动时间或用户采用评分 | 按原协议固定两品牌输入、手工基线/计时、用户评分与调用范围；10/12 可用、不低于手工视觉、配对主动时间中位数省 30%、修改成功至少 80% 等门槛不自动下调 |
+| 本地交付与发布 | 已有 README 的 Node/Codex 启动、独立登录、数据目录和备份说明；132 项回归及受限性能/隔离证据。2026-10-06 只读检查 RidePass 数据与应用 auth 文件存在，12080 未监听，Node 22.15.0/npm 10.9.2/Codex 可找到；未读取认证内容或调用 provider | 用户亲自试用、首次安装/接入及恢复演示、稳定宿主组合与源码 license 决定；auth 文件存在不等于登录当前有效。完整 V1 仍未通过 |
+
+手工移动 logo 的可视化分层编辑按用户要求延期，**不阻断 V1**；现有 composition 参数/固定模板 Recompose 不是自由拖拽编辑器。既有 v0.1 PASS WITH NON-BLOCKING LIMITATIONS 保留，新增 logo 要求属于 V1，不能把当前缺口写成已实现。见 [PRD 新要求](prd-v0.1.md#用户反馈正式-logo-与可选手工排版2026-10-06)与 [路线图](roadmap.md#dogfood-后的-v1-需求与剩余工作2026-10-06)。
+
 ## 后继批准：Skill best effort，硬边界决定可行性（2026-10-05）
 
 PRD/ADR-017 先记录新批准，再调整实现/验证。本轮从干净 `90a10a9991b0537b0d533e8e916d83a45e3e3eaa` 开始，分支 `codex/production-loop-feasibility`。受测实现/测试/诊断提交为 **`734b4b2413da154aa1a0ce273f8d93037dcd36f7`**；后续文档提交只同步本结果，不改变受测代码。原有三项领域修正、profile 和兼容策略保留。没有推送、发布或加入凭证/真实图片/会话/私有报告；本地材料保留在被忽略的 `.workbench/`。
